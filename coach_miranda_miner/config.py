@@ -25,6 +25,8 @@ class Settings:
     discovery_limit: int
     discovery_pool_limit: int
     min_market_cap_usd: float
+    oi_bases: list[str]
+    oi_limit: int
     scan_interval_seconds: int
     render_charts: bool
     chart_dir: str
@@ -72,6 +74,8 @@ class Settings:
             discovery_limit=int(os.getenv("DISCOVERY_LIMIT", "5")),
             discovery_pool_limit=int(os.getenv("DISCOVERY_POOL_LIMIT", "100")),
             min_market_cap_usd=float(os.getenv("MIN_MARKET_CAP_USD", "100000000")),
+            oi_bases=_csv(os.getenv("OI_BASES", "BTC,ETH,SOL,XRP,DOGE,ADA,AVAX,LINK,DOT")),
+            oi_limit=int(os.getenv("OI_LIMIT", "8")),
             scan_interval_seconds=int(os.getenv("SCAN_INTERVAL_SECONDS", "900")),
             render_charts=_bool(os.getenv("RENDER_CHARTS", "true")),
             chart_dir=os.getenv("CHART_DIR", "charts"),

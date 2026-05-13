@@ -26,6 +26,7 @@ from .market_cap import CoinMarketCapProvider, StaticMarketCapProvider
 from .miner import SignalMiner
 from .models import Candidate, MarketRegime, SignalState, TradeThesis, ValidationResult
 from .news import CryptoPanicNewsProvider, EmptyNewsProvider
+from .oi import OISnapshot, OpenInterestScanner
 from .risk import RiskManager
 from .telegram import TelegramAlerter
 from .validator import ThesisValidator
@@ -105,6 +106,7 @@ class CoachMirandaMiner:
             settings.backtest_stop_atr_multiple,
             settings.backtest_target_r_multiple,
         )
+        self.oi_scanner = OpenInterestScanner(self.router, settings.oi_bases)
 
     def _build_discovery(self):
         if self.settings.discovery_mode == "cmc" and self.settings.coinmarketcap_api_key:
@@ -276,6 +278,10 @@ class CoachMirandaMiner:
     def scan_for_alerts(self) -> str:
         messages = self.scan()
         return "\n\n".join(messages)
+
+    def high_oi_watchlist(self) -> tuple[list[OISnapshot], list[str]]:
+        rows, warnings = self.oi_scanner.scan()
+        return rows[: self.settings.oi_limit], warnings
 
     def backtest(self, symbol: str | None = None, timeframe: str | None = None) -> BacktestResult:
         route_symbol = symbol or self.settings.symbol

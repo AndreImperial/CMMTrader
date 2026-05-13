@@ -18,6 +18,8 @@ services:
         value: paper
       - key: RENDER_CHARTS
         value: false
+      - key: OI_LIMIT
+        value: "8"
       - key: MIN_CONFIDENCE
         value: "0.72"
       - key: MIN_RISK_REWARD

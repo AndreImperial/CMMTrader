@@ -13,6 +13,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("run", help="Run one paper-trading decision cycle")
     subparsers.add_parser("scan", help="Run one multi-asset signal scan")
     subparsers.add_parser("doctor", help="Check configuration and free-mode status")
+    subparsers.add_parser("oi", help="Show high open-interest and volume watchlist")
     price = subparsers.add_parser("price", help="Fetch one live/updating price")
     price.add_argument("--symbol", default=None)
     alerts = subparsers.add_parser("alerts", help="Run Telegram alert scans forever")
@@ -44,6 +45,17 @@ def main() -> None:
         print(coach.backtest(args.symbol, args.timeframe).format())
     if args.command == "doctor":
         print(coach.doctor())
+    if args.command == "oi":
+        rows, warnings = coach.high_oi_watchlist()
+        for warning in warnings[:5]:
+            print(f"Warning: {warning}")
+        for row in rows:
+            oi = f"{row.open_interest_usd:,.0f}" if row.open_interest_usd is not None else "n/a"
+            volume = f"{row.volume_24h_usd:,.0f}" if row.volume_24h_usd is not None else "n/a"
+            print(
+                f"{row.symbol} | {row.source} | OI USD: {oi} | "
+                f"24h Volume: {volume} | {row.status}"
+            )
     if args.command == "price":
         print(coach.price(args.symbol))
     if args.command == "alerts":

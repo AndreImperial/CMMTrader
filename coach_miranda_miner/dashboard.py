@@ -63,6 +63,7 @@ def main() -> None:
         refresh_seconds = st.selectbox("Refresh interval", [60, 180, 300, 900], index=1)
         run_scan = st.button("Scan Now", type="primary", use_container_width=True)
         show_history = st.checkbox("Show signal history", value=True)
+        show_oi = st.checkbox("Show High OI + Volume", value=True)
 
         st.divider()
         st.write("Execution")
@@ -98,9 +99,13 @@ def main() -> None:
         st.warning("Offline demo mode uses synthetic candles.")
 
     if run_scan or auto_refresh:
+        if show_oi:
+            render_high_oi(coach)
         render_scan(coach)
     else:
         st.info("Press Scan Now to look for setups.")
+        if show_oi:
+            render_high_oi(coach)
 
     if show_history:
         render_history(coach)
@@ -230,6 +235,43 @@ def render_scan(coach: CoachMirandaMiner) -> None:
                     st.write(f"- {item}")
                 if candidate.trading_link:
                     st.link_button("Open Trading Page", candidate.trading_link)
+
+
+def render_high_oi(coach: CoachMirandaMiner) -> None:
+    st.subheader("High OI + Volume")
+    rows, warnings = coach.high_oi_watchlist()
+    for warning in warnings[:3]:
+        st.caption(warning)
+    if not rows:
+        st.info("No OI or volume rows available from the configured sources.")
+        return
+
+    frame = pd.DataFrame(
+        [
+            {
+                "symbol": row.symbol,
+                "source": row.source,
+                "open_interest_usd": row.open_interest_usd,
+                "volume_24h_usd": row.volume_24h_usd,
+                "score": row.score,
+                "price": row.price,
+                "status": row.status,
+                "updated": row.updated_at.isoformat(timespec="minutes"),
+            }
+            for row in rows
+        ]
+    )
+    st.dataframe(
+        frame,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "open_interest_usd": st.column_config.NumberColumn("OI USD", format="$%.0f"),
+            "volume_24h_usd": st.column_config.NumberColumn("24h Volume", format="$%.0f"),
+            "score": st.column_config.NumberColumn("OI/Vol Score", format="%.0f"),
+            "price": st.column_config.NumberColumn("Price", format="$%.4f"),
+        },
+    )
 
 
 def render_history(coach: CoachMirandaMiner) -> None:

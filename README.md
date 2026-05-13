@@ -70,6 +70,7 @@ python -m coach_miranda_miner scan
 python -m coach_miranda_miner backtest --symbol BTC/USDT --timeframe 1h
 python -m coach_miranda_miner loop --interval 900
 python -m coach_miranda_miner alerts --interval 900
+python -m coach_miranda_miner oi
 python -m coach_miranda_miner doctor
 python -m unittest discover
 ```
@@ -186,6 +187,19 @@ ALERT_COOLDOWN_MINUTES=180
 
 The alert system does not place trades. It only notifies you so you can review
 and trade manually.
+
+## High OI + Volume
+
+The dashboard includes a **High OI + Volume** section. It tries public
+derivatives open-interest endpoints first:
+
+- OKX swaps
+- Binance futures
+- Bybit linear futures
+
+If those endpoints are blocked by the host region, it falls back to Coinbase
+24h volume and clearly marks rows as volume-only. The section is designed as a
+watchlist, not a trade trigger by itself.
 
 ## Quality Controls
 
