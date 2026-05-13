@@ -294,7 +294,7 @@ class OpenInterestScanner:
                 continue
             if base not in self.bases or quote not in {"USDT", "USD"}:
                 continue
-            if "PERP" not in symbol:
+            if not item.get("is_perpetual", "PERP" in symbol):
                 continue
             current = by_base.get(base)
             if current is None or symbol.endswith(".A"):

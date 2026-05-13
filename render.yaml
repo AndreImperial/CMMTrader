@@ -29,8 +29,8 @@ services:
       - key: ALERT_COOLDOWN_MINUTES
         value: "180"
       # Optional keys for better derivatives data:
-      # - key: COINALYZE_API_KEY
-      #   sync: false
+      - key: COINALYZE_API_KEY
+        sync: false
       # - key: COINGLASS_API_KEY
       #   sync: false
   # Optional: create this as a separate Render worker if you want Telegram

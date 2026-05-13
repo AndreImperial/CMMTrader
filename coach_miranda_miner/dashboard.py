@@ -103,7 +103,7 @@ def main() -> None:
     if run_scan or auto_refresh:
         if show_oi:
             render_high_oi(coach)
-        render_scan(coach)
+        render_scan(coach, use_tradingview)
     else:
         st.info("Press Scan Now to look for setups.")
         if show_oi:
@@ -117,7 +117,7 @@ def main() -> None:
         st.rerun()
 
 
-def render_scan(coach: CoachMirandaMiner) -> None:
+def render_scan(coach: CoachMirandaMiner, use_tradingview: bool = True) -> None:
     try:
         market_regime = coach.gatekeeper.market_regime()
         candidates = coach.discovery.discover(coach.settings.discovery_limit)
