@@ -10,15 +10,21 @@ class Gatekeeper:
         router: ExchangeRouter,
         btc_kill_switch_drop_pct: float,
         min_volume_24h_usd: float,
+        quote_currency: str = "USDT",
     ) -> None:
         self.router = router
         self.btc_kill_switch_drop_pct = abs(btc_kill_switch_drop_pct)
         self.min_volume_24h_usd = min_volume_24h_usd
+        self.quote_currency = quote_currency
 
     def market_regime(self) -> MarketRegime:
-        route = self.router.first_available_route("BTC", "USDT")
+        route = self.router.first_available_route("BTC", self.quote_currency)
+        if route is None and self.quote_currency != "USD":
+            route = self.router.first_available_route("BTC", "USD")
+        if route is None and self.quote_currency != "USDT":
+            route = self.router.first_available_route("BTC", "USDT")
         if route is None:
-            raise ValueError("No BTC/USDT route available for market regime check.")
+            raise ValueError("No BTC route available for market regime check.")
         exchange_id, symbol = route
         ticker = self.router.fetch_ticker(exchange_id, symbol)
         change = float(ticker.percentage or 0.0)

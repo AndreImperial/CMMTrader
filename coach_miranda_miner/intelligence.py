@@ -40,9 +40,12 @@ class IntelligenceGatherer:
                 self.candle_limit,
             )
             if self.chart_renderer is not None:
-                chart_paths.append(
-                    self.chart_renderer.render(candidate.route_symbol, timeframe, candles)
-                )
+                try:
+                    chart_paths.append(
+                        self.chart_renderer.render(candidate.route_symbol, timeframe, candles)
+                    )
+                except OSError:
+                    pass
             candles_by_timeframe[timeframe] = [
                 CandleSnapshot(
                     timestamp=row.timestamp.to_pydatetime(),

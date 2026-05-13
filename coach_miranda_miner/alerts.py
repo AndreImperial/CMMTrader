@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .models import Candidate, TradeThesis, ValidationResult
+from .models import Candidate, SetupScore, TradeThesis, ValidationResult
 
 
 class AlertFormatter:
@@ -9,6 +9,7 @@ class AlertFormatter:
         candidate: Candidate,
         thesis: TradeThesis,
         validation: ValidationResult,
+        score: SetupScore | None = None,
     ) -> str:
         targets = ", ".join(_price(target) for target in thesis.targets) or "n/a"
         evidence = "\n".join(f"- {item}" for item in thesis.evidence) or "- n/a"
@@ -20,17 +21,27 @@ class AlertFormatter:
             market.append(f"24h volume: {_usd(candidate.volume_24h_usd)}")
         if candidate.open_interest_change_24h_pct is not None:
             market.append(f"OI 24h: {candidate.open_interest_change_24h_pct:.2f}%")
+        if score is not None:
+            market.append(f"rank score: #{score.rank} / {score.score:.1f}")
+            if score.relative_volume is not None:
+                market.append(f"15m rel vol: {score.relative_volume:.2f}x")
         market_text = " | ".join(market) or "Market context: n/a"
+        signal_note = ""
+        if thesis.signal.value == "watch":
+            signal_note = "Status: WATCH only - not confirmed entry.\n"
+        if thesis.signal.value == "enter":
+            signal_note = "Status: ENTER - rules confirm entry conditions.\n"
         return (
             f"Coach Miranda Miner\n"
             f"Symbol: {candidate.route_symbol} on {candidate.exchange_id}\n"
             f"Setup: {thesis.setup.value} | Signal: {thesis.signal.value} | "
             f"{status} | Grade: {quality}\n"
+            f"{signal_note}"
             f"Direction: {thesis.direction} | Confidence: {thesis.confidence:.2f}\n"
             f"{market_text}\n"
             f"Entry: {_price(thesis.entry)} | Stop: {_price(thesis.stop_loss)} | "
             f"Targets: {targets}\n"
-            f"Risk/Reward: {thesis.risk_reward or 'n/a'}\n"
+            f"Risk/Reward: {_ratio(thesis.risk_reward)}\n"
             f"Link: {candidate.trading_link or 'n/a'}\n\n"
             f"Evidence:\n{evidence}\n\n"
             f"Validation:\n{reasons}"
@@ -63,3 +74,9 @@ def _usd(value: float) -> str:
     if value >= 1_000_000:
         return f"${value / 1_000_000:.2f}M"
     return f"${value:,.0f}"
+
+
+def _ratio(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.2f}"

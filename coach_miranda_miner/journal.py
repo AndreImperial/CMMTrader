@@ -226,3 +226,25 @@ class Journal:
                     message,
                 ),
             )
+
+    def recent_alerts(self, limit: int = 20) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT created_at, symbol, setup, signal, message
+                FROM telegram_alerts
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "created_at": row[0],
+                "symbol": row[1],
+                "setup": row[2],
+                "signal": row[3],
+                "message": row[4],
+            }
+            for row in rows
+        ]

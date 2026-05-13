@@ -234,10 +234,14 @@ def _long_thesis(
     stop_distance = tf_15m.atr or entry * 0.015
     stop = entry - stop_distance
     targets = [entry + (stop_distance * 1.5), entry + (stop_distance * 2.5)]
+    risk_reward = (targets[-1] - entry) / stop_distance if stop_distance > 0 else None
     if signal == SignalState.WAIT:
         evidence.append("Price remains inside consolidation; waiting avoids fakeouts.")
     if signal == SignalState.WATCH:
         evidence.append("Breakout needs follow-through or retest confirmation before entry.")
+    if signal == SignalState.ENTER:
+        evidence.append("15m confirmation candle closed outside the prison range.")
+    evidence.append(f"ATR stop distance is {stop_distance:.6g}.")
     return TradeThesis(
         symbol=pack.candidate.route_symbol,
         setup=setup,
@@ -247,7 +251,7 @@ def _long_thesis(
         entry=entry,
         stop_loss=stop,
         targets=targets,
-        risk_reward=2.0,
+        risk_reward=risk_reward,
         evidence=evidence,
     )
 

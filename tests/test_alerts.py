@@ -6,6 +6,7 @@ from coach_miranda_miner.alerts import AlertFormatter
 from coach_miranda_miner.models import (
     Asset,
     Candidate,
+    SetupScore,
     Setup,
     SignalState,
     TradeThesis,
@@ -37,11 +38,19 @@ class AlertFormatterTests(unittest.TestCase):
             candidate,
             thesis,
             ValidationResult(approved=False, reasons=["Signal is watch."]),
+            SetupScore(
+                symbol="BTC/USDT",
+                rank=3,
+                score=72.5,
+                relative_volume=1.8,
+                btc_regime_ok=True,
+            ),
         )
         self.assertIn("Grade: B", alert)
         self.assertIn("24h volume: $1.50B", alert)
+        self.assertIn("WATCH only - not confirmed entry", alert)
+        self.assertIn("rank score: #3 / 72.5", alert)
 
 
 if __name__ == "__main__":
     unittest.main()
-

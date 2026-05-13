@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+import math
+
 from ccxt import BaseError as CcxtError
 import requests
 
@@ -24,12 +27,31 @@ from .intelligence import IntelligenceGatherer
 from .journal import Journal
 from .market_cap import CoinMarketCapProvider, StaticMarketCapProvider
 from .miner import SignalMiner
-from .models import Candidate, MarketRegime, SignalState, TradeThesis, ValidationResult
+from .models import (
+    Candidate,
+    IntelligencePack,
+    MarketRegime,
+    ScanSummary,
+    SetupScore,
+    SignalState,
+    TradeThesis,
+    ValidationResult,
+)
 from .news import CryptoPanicNewsProvider, EmptyNewsProvider
 from .oi import OISnapshot, OpenInterestScanner
 from .risk import RiskManager
 from .telegram import TelegramAlerter
 from .validator import ThesisValidator
+
+
+@dataclass(frozen=True)
+class DeepScanResult:
+    candidate: Candidate
+    score: SetupScore
+    pack: IntelligencePack
+    thesis: TradeThesis
+    validation: ValidationResult
+    alert_sent: bool
 
 
 class CoachMirandaMiner:
@@ -67,6 +89,7 @@ class CoachMirandaMiner:
             self.router,
             settings.btc_kill_switch_drop_pct,
             settings.min_volume_24h_usd,
+            settings.quote_currency,
         )
         chart_renderer = ChartRenderer(settings.chart_dir) if settings.render_charts else None
         news_provider = (
@@ -111,6 +134,149 @@ class CoachMirandaMiner:
             settings.oi_bases,
             settings.coinalyze_api_key,
         )
+
+    def scan_setups(self) -> tuple[ScanSummary, list[SetupScore], list[DeepScanResult]]:
+        warnings: list[str] = []
+        try:
+            market_regime = self.gatekeeper.market_regime()
+        except (CcxtError, requests.RequestException, ValueError) as exc:
+            summary = ScanSummary(
+                candidates_scanned=0,
+                deep_analyzed=0,
+                warnings=[f"Market regime unavailable: {exc}"],
+                coinalyze_enabled=bool(self.settings.coinalyze_api_key),
+            )
+            return summary, [], []
+
+        try:
+            candidates = self.discovery.discover(self.settings.prefilter_limit)
+        except (CcxtError, requests.RequestException, ValueError) as exc:
+            summary = ScanSummary(
+                candidates_scanned=0,
+                deep_analyzed=0,
+                warnings=[f"Discovery unavailable: {exc}", *warnings],
+                coinalyze_enabled=bool(self.settings.coinalyze_api_key),
+                market_regime=market_regime,
+            )
+            return summary, [], []
+
+        oi_by_base = self._coinalyze_rows_for_candidates(candidates, warnings)
+
+        scored: list[tuple[Candidate, SetupScore]] = []
+        for candidate in candidates:
+            try:
+                ticker = self.router.fetch_ticker(candidate.exchange_id, candidate.route_symbol)
+            except (CcxtError, requests.RequestException, ValueError) as exc:
+                warnings.append(f"{candidate.route_symbol} ticker skipped: {exc}")
+                continue
+
+            base = candidate.asset.base
+            oi_row = oi_by_base.get(base)
+            relative_volume = self._relative_volume_for(candidate, warnings)
+            enriched = candidate.model_copy(
+                update={
+                    "volume_24h_usd": ticker.quote_volume,
+                    "open_interest_change_24h_pct": oi_row.open_interest_change_24h_pct
+                    if oi_row
+                    else None,
+                }
+            )
+            scored.append(
+                (
+                    enriched,
+                    _setup_score(
+                        enriched,
+                        price_change_24h_pct=ticker.percentage,
+                        relative_volume=relative_volume,
+                        btc_regime_ok=market_regime.longs_allowed,
+                    ),
+                )
+            )
+
+        ranked_pairs = sorted(scored, key=lambda item: item[1].score, reverse=True)
+        ranked: list[tuple[Candidate, SetupScore]] = []
+        for rank, (candidate, score) in enumerate(ranked_pairs, start=1):
+            ranked.append((candidate, score.model_copy(update={"rank": rank})))
+
+        deep_results: list[DeepScanResult] = []
+        for candidate, score in ranked[: self.settings.deep_scan_limit]:
+            try:
+                passed, gate_reasons = self.gatekeeper.filter_candidate(candidate)
+                if not passed:
+                    warnings.append(f"{candidate.route_symbol} gate skipped: {'; '.join(gate_reasons)}")
+                    continue
+                pack = self.intelligence.gather(candidate, market_regime)
+                thesis = self.analyzer.analyze(pack)
+                atr = next((item.atr for item in pack.indicators if item.timeframe == "15m"), None)
+                validation = self.validator.validate(thesis, market_regime, atr)
+            except (CcxtError, requests.RequestException, ValueError, IndexError) as exc:
+                warnings.append(f"{candidate.route_symbol} deep scan failed: {exc}")
+                continue
+
+            self.journal.record_thesis(
+                symbol=thesis.symbol,
+                setup=thesis.setup.value,
+                signal=thesis.signal.value,
+                direction=thesis.direction,
+                confidence=thesis.confidence,
+                approved=validation.approved,
+                payload_json=thesis.model_dump_json(),
+                validation_json=validation.model_dump_json(),
+            )
+            message = self.alerts.format(candidate, thesis, validation, score)
+            alert_sent = self.maybe_send_telegram_alert(candidate, thesis, validation, message)
+            deep_results.append(
+                DeepScanResult(
+                    candidate=candidate,
+                    score=score,
+                    pack=pack,
+                    thesis=thesis,
+                    validation=validation,
+                    alert_sent=alert_sent,
+                )
+            )
+
+        summary = ScanSummary(
+            candidates_scanned=len(ranked),
+            deep_analyzed=len(deep_results),
+            warnings=warnings,
+            coinalyze_enabled=bool(self.settings.coinalyze_api_key),
+            market_regime=market_regime,
+        )
+        return summary, [score for _, score in ranked], deep_results
+
+    def _coinalyze_rows_for_candidates(
+        self,
+        candidates: list[Candidate],
+        warnings: list[str],
+    ) -> dict[str, OISnapshot]:
+        if not self.settings.coinalyze_api_key:
+            warnings.append("Coinalyze API key not configured; OI prefilter boost unavailable.")
+            return {}
+        bases = sorted({candidate.asset.base for candidate in candidates})
+        scanner = OpenInterestScanner(self.router, bases, self.settings.coinalyze_api_key)
+        rows = scanner._scan_coinalyze(warnings)
+        rows = scanner._merge_volume(rows) if rows else []
+        return {row.symbol.split("/")[0]: row for row in rows}
+
+    def _relative_volume_for(self, candidate: Candidate, warnings: list[str]) -> float | None:
+        try:
+            candles = self.router.fetch_candles(
+                candidate.exchange_id,
+                candidate.route_symbol,
+                "15m",
+                40,
+            )
+        except (CcxtError, requests.RequestException, ValueError, IndexError) as exc:
+            warnings.append(f"{candidate.route_symbol} relative volume unavailable: {exc}")
+            return None
+        if len(candles) < 21:
+            return None
+        latest = float(candles.iloc[-1]["volume"])
+        average = float(candles["volume"].tail(21).head(20).mean())
+        if average <= 0:
+            return None
+        return latest / average
 
     def _build_discovery(self):
         if self.settings.discovery_mode == "cmc" and self.settings.coinmarketcap_api_key:
@@ -181,14 +347,12 @@ class CoachMirandaMiner:
         )
 
     def scan(self) -> list[str]:
-        try:
-            market_regime = self.gatekeeper.market_regime()
-            candidates = self.discovery.discover(self.settings.discovery_limit)
-        except (CcxtError, requests.RequestException, ValueError) as exc:
+        summary, _, results = self.scan_setups()
+        if summary.market_regime is None:
             return [
                 "Live data is not available right now.",
                 f"Data mode: {self.settings.data_mode}",
-                f"Reason: {exc}",
+                f"Reason: {'; '.join(summary.warnings)}",
                 "Try DATA_MODE=paprika for hosted free prices, or DATA_MODE=fixture for offline demo mode.",
             ]
         messages: list[str] = []
@@ -199,38 +363,18 @@ class CoachMirandaMiner:
                 "Use DATA_MODE=live for updating exchange prices."
             )
 
-        for candidate in candidates:
-            passed, gate_reasons = self.gatekeeper.filter_candidate(candidate)
-            if not passed:
-                messages.append(
-                    f"{candidate.route_symbol}: skipped by gatekeepers: "
-                    f"{'; '.join(gate_reasons)}"
+        for result in results:
+            messages.append(
+                self.alerts.format(
+                    result.candidate,
+                    result.thesis,
+                    result.validation,
+                    result.score,
                 )
-                continue
-
-            pack = self.intelligence.gather(candidate, market_regime)
-            thesis = self.analyzer.analyze(pack)
-            atr = next(
-                (item.atr for item in pack.indicators if item.timeframe == "15m"),
-                None,
             )
-            validation = self.validator.validate(thesis, market_regime, atr)
-            self.journal.record_thesis(
-                symbol=thesis.symbol,
-                setup=thesis.setup.value,
-                signal=thesis.signal.value,
-                direction=thesis.direction,
-                confidence=thesis.confidence,
-                approved=validation.approved,
-                payload_json=thesis.model_dump_json(),
-                validation_json=validation.model_dump_json(),
-            )
-            message = self.alerts.format(candidate, thesis, validation)
-            self.maybe_send_telegram_alert(candidate, thesis, validation, message)
-            messages.append(message)
 
         if not messages:
-            messages.append("Coach Miranda Miner: no routed candidates found.")
+            messages.append("Coach Miranda Miner: no deep-scan candidates found.")
         return messages
 
     def maybe_send_telegram_alert(
@@ -275,7 +419,7 @@ class CoachMirandaMiner:
         thresholds = {
             "enter": {SignalState.ENTER},
             "watch": {SignalState.WATCH, SignalState.ENTER},
-            "wait": {SignalState.WAIT, SignalState.WATCH, SignalState.ENTER},
+            "wait": {SignalState.WATCH, SignalState.ENTER},
         }
         return signal in thresholds.get(self.settings.telegram_min_signal, thresholds["watch"])
 
@@ -283,9 +427,16 @@ class CoachMirandaMiner:
         messages = self.scan()
         return "\n\n".join(messages)
 
-    def high_oi_watchlist(self) -> tuple[list[OISnapshot], list[str]]:
+    def high_oi_watchlist(
+        self,
+        limit: int | None = None,
+        all_rows: bool = False,
+    ) -> tuple[list[OISnapshot], list[str]]:
         rows, warnings = self.oi_scanner.scan()
-        return rows[: self.settings.oi_limit], warnings
+        if all_rows:
+            return rows, warnings
+        row_limit = self.settings.oi_limit if limit is None else limit
+        return rows[:row_limit], warnings
 
     def backtest(self, symbol: str | None = None, timeframe: str | None = None) -> BacktestResult:
         route_symbol = symbol or self.settings.symbol
@@ -347,3 +498,46 @@ class CoachMirandaMiner:
         if self.settings.analyzer_mode == "openai":
             lines.append("OpenAI analyzer is optional and requires OPENAI_API_KEY.")
         return "\n".join(lines)
+
+
+def _setup_score(
+    candidate: Candidate,
+    price_change_24h_pct: float | None,
+    relative_volume: float | None,
+    btc_regime_ok: bool,
+) -> SetupScore:
+    volume = candidate.volume_24h_usd or 0.0
+    oi_change = candidate.open_interest_change_24h_pct
+    reasons: list[str] = []
+
+    volume_score = min(max(math.log10(volume) - 6.0, 0.0) * 12.0, 36.0) if volume > 0 else 0.0
+    change_score = min(abs(price_change_24h_pct or 0.0) * 1.6, 18.0)
+    relvol_score = min(max((relative_volume or 0.0) - 1.0, 0.0) * 18.0, 24.0)
+    oi_score = min(abs(oi_change or 0.0) * 1.2, 28.0)
+    regime_score = 6.0 if btc_regime_ok else -25.0
+    score = max(0.0, volume_score + change_score + relvol_score + oi_score + regime_score)
+
+    if volume:
+        reasons.append(f"24h volume supports liquidity at ${volume:,.0f}.")
+    if price_change_24h_pct is not None:
+        reasons.append(f"24h price move is {price_change_24h_pct:.2f}%.")
+    if relative_volume is not None:
+        reasons.append(f"15m relative volume is {relative_volume:.2f}x.")
+    if oi_change is not None:
+        reasons.append(f"Coinalyze 24h OI change is {oi_change:.2f}%.")
+    if btc_regime_ok:
+        reasons.append("BTC regime allows long setups.")
+    else:
+        reasons.append("BTC regime blocks aggressive long setups.")
+
+    return SetupScore(
+        symbol=candidate.route_symbol,
+        rank=0,
+        score=round(score, 2),
+        volume_24h_usd=candidate.volume_24h_usd,
+        price_change_24h_pct=price_change_24h_pct,
+        oi_change_24h_pct=oi_change,
+        relative_volume=relative_volume,
+        btc_regime_ok=btc_regime_ok,
+        prefilter_reasons=reasons,
+    )

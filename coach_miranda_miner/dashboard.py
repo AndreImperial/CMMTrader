@@ -17,15 +17,13 @@ if str(PROJECT_ROOT) not in sys.path:
 try:
     from .coach import CoachMirandaMiner
     from .config import Settings
-    from .models import Candidate, IntelligencePack, TradeThesis, ValidationResult
+    from .models import IntelligencePack, TradeThesis
 except ImportError:
     from coach_miranda_miner.coach import CoachMirandaMiner
     from coach_miranda_miner.config import Settings
     from coach_miranda_miner.models import (
-        Candidate,
         IntelligencePack,
         TradeThesis,
-        ValidationResult,
     )
 
 
@@ -59,10 +57,15 @@ def main() -> None:
             list(DATA_MODES.keys()),
             index=_mode_index(base_settings.data_mode),
         )
-        discovery_limit = st.slider("Symbols to scan", 1, 100, min(base_settings.discovery_limit, 100))
+        discovery_limit = st.slider("Top universe", 1, 100, min(base_settings.prefilter_limit, 100))
+        deep_scan_limit = st.slider("Deep analysis limit", 1, 30, min(base_settings.deep_scan_limit, 30))
         candle_limit = st.slider("Candles per timeframe", 80, 300, base_settings.candle_limit)
-        auto_refresh = st.checkbox("Auto refresh")
-        refresh_seconds = st.selectbox("Refresh interval", [60, 180, 300, 900], index=1)
+        auto_refresh = st.checkbox("Auto scan", value=base_settings.auto_scan_enabled)
+        refresh_seconds = st.selectbox(
+            "Refresh interval",
+            [60, 180, 300, 900],
+            index=_refresh_index(base_settings.auto_scan_interval_seconds),
+        )
         run_scan = st.button("Scan Now", type="primary", use_container_width=True)
         show_history = st.checkbox("Show signal history", value=True)
         show_oi = st.checkbox("Show High OI + Volume", value=True)
@@ -76,8 +79,12 @@ def main() -> None:
         base_settings,
         data_mode=DATA_MODES[data_label],
         discovery_limit=discovery_limit,
+        prefilter_limit=discovery_limit,
+        deep_scan_limit=deep_scan_limit,
         candle_limit=candle_limit,
         render_charts=False,
+        auto_scan_enabled=auto_refresh,
+        auto_scan_interval_seconds=refresh_seconds,
     )
     coach = CoachMirandaMiner(settings)
 
@@ -103,9 +110,13 @@ def main() -> None:
         st.warning("Offline demo mode uses synthetic candles.")
 
     if run_scan or auto_refresh:
-        if show_oi:
-            render_high_oi(coach)
-        render_scan(coach, use_tradingview)
+        render_scan(
+            coach,
+            use_tradingview,
+            show_oi,
+            force_refresh=run_scan,
+            cache_seconds=refresh_seconds,
+        )
     else:
         st.info("Press Scan Now to look for setups.")
         if show_oi:
@@ -119,91 +130,121 @@ def main() -> None:
         st.rerun()
 
 
-def render_scan(coach: CoachMirandaMiner, use_tradingview: bool = True) -> None:
-    try:
-        market_regime = coach.gatekeeper.market_regime()
-        candidates = coach.discovery.discover(coach.settings.discovery_limit)
-    except Exception as exc:
-        st.error("Live data is not available from this source right now.")
-        st.code(str(exc))
-        if coach.settings.data_mode == "live":
-            st.info(
-                "Binance/Bybit/OKX can block Render regions. "
-                "Use the CoinPaprika source for hosted free prices."
-            )
+def render_scan(
+    coach: CoachMirandaMiner,
+    use_tradingview: bool = True,
+    show_oi: bool = True,
+    force_refresh: bool = False,
+    cache_seconds: int = 900,
+) -> None:
+    cache_key = _scan_cache_key(coach.settings)
+    cached = st.session_state.get("scan_cache")
+    cache_is_valid = (
+        cached is not None
+        and cached.get("key") == cache_key
+        and time.time() - cached.get("saved_at", 0) < cache_seconds
+    )
+    if cache_is_valid and not force_refresh:
+        summary, scores, results = cached["payload"]
+        st.caption("Using cached scan result. Press Scan Now to force a fresh scan.")
+    else:
+        with st.spinner("Scanning top universe, ranking candidates, and deep-analyzing setups..."):
+            summary, scores, results = coach.scan_setups()
+        st.session_state["scan_cache"] = {
+            "key": cache_key,
+            "saved_at": time.time(),
+            "payload": (summary, scores, results),
+        }
+
+    status_cols = st.columns(4)
+    status_cols[0].metric("Candidates Scanned", summary.candidates_scanned)
+    status_cols[1].metric("Deep Analyzed", summary.deep_analyzed)
+    status_cols[2].metric("Last Scan", summary.created_at.strftime("%H:%M UTC"))
+    status_cols[3].metric("Coinalyze", "On" if summary.coinalyze_enabled else "Off")
+    if summary.market_regime is not None:
+        st.subheader("Market Regime")
+        st.write(summary.market_regime.reason)
+    for warning in summary.warnings[:6]:
+        st.caption(warning)
+
+    render_prefilter(scores)
+    if show_oi:
+        render_high_oi_from_scores(scores)
+    render_deep_scan(results, use_tradingview)
+
+
+def render_prefilter(scores) -> None:
+    st.subheader("Top 100 Prefilter")
+    if not scores:
+        st.info("No prefilter candidates available.")
         return
-
-    st.subheader("Market Regime")
-    st.write(market_regime.reason)
-
-    rows = []
-    results: list[tuple[Candidate, IntelligencePack, TradeThesis, ValidationResult]] = []
-    progress = st.progress(0)
-    for index, candidate in enumerate(candidates, start=1):
-        progress.progress(index / max(len(candidates), 1))
-        passed, gate_reasons = coach.gatekeeper.filter_candidate(candidate)
-        if not passed:
-            rows.append(
-                {
-                    "symbol": candidate.route_symbol,
-                    "exchange": candidate.exchange_id,
-                    "setup": "blocked",
-                    "signal": "skip",
-                    "confidence": 0,
-                    "status": "; ".join(gate_reasons),
-                }
-            )
-            continue
-
-        pack = coach.intelligence.gather(candidate, market_regime)
-        thesis = coach.analyzer.analyze(pack)
-        atr = next((item.atr for item in pack.indicators if item.timeframe == "15m"), None)
-        validation = coach.validator.validate(thesis, market_regime, atr)
-        message = coach.alerts.format(candidate, thesis, validation)
-        coach.maybe_send_telegram_alert(candidate, thesis, validation, message)
-        coach.journal.record_thesis(
-            symbol=thesis.symbol,
-            setup=thesis.setup.value,
-            signal=thesis.signal.value,
-            direction=thesis.direction,
-            confidence=thesis.confidence,
-            approved=validation.approved,
-            payload_json=thesis.model_dump_json(),
-            validation_json=validation.model_dump_json(),
-        )
-        results.append((candidate, pack, thesis, validation))
-        rows.append(
+    frame = pd.DataFrame(
+        [
             {
-                "symbol": candidate.route_symbol,
-                "source": candidate.exchange_id,
-                "setup": thesis.setup.value,
-                "signal": thesis.signal.value,
-                "confidence": thesis.confidence,
-                "entry": thesis.entry,
-                "stop": thesis.stop_loss,
-                "target_1": thesis.targets[0] if thesis.targets else None,
-                "approved": validation.approved,
+                "rank": item.rank,
+                "symbol": item.symbol,
+                "score": item.score,
+                "volume_24h_usd": item.volume_24h_usd,
+                "price_change_24h_pct": item.price_change_24h_pct,
+                "oi_change_24h_pct": item.oi_change_24h_pct,
+                "relative_volume": item.relative_volume,
+                "btc_regime_ok": item.btc_regime_ok,
+                "why": " ".join(item.prefilter_reasons[:3]),
             }
-        )
-    progress.empty()
-
-    rows = sorted(
-        rows,
-        key=lambda item: (
-            SIGNAL_PRIORITY.get(item.get("signal", "reject"), 9),
-            -float(item.get("confidence") or 0),
-        ),
+            for item in scores[:100]
+        ]
+    )
+    st.dataframe(
+        frame,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "volume_24h_usd": st.column_config.NumberColumn("24h Volume", format="$%.0f"),
+            "price_change_24h_pct": st.column_config.NumberColumn("24h %", format="%.2f%%"),
+            "oi_change_24h_pct": st.column_config.NumberColumn("OI 24h %", format="%.2f%%"),
+            "relative_volume": st.column_config.NumberColumn("15m Rel Vol", format="%.2fx"),
+            "score": st.column_config.NumberColumn("Score", format="%.1f"),
+        },
     )
 
-    st.subheader("Signals")
+
+def render_deep_scan(results, use_tradingview: bool) -> None:
+    st.subheader("Deep Scan Results")
+    rows = sorted(
+        [
+            {
+                "rank": result.score.rank,
+                "symbol": result.candidate.route_symbol,
+                "source": result.candidate.exchange_id,
+                "score": result.score.score,
+                "setup": result.thesis.setup.value,
+                "signal": result.thesis.signal.value,
+                "confidence": result.thesis.confidence,
+                "entry": result.thesis.entry,
+                "stop": result.thesis.stop_loss,
+                "target_1": result.thesis.targets[0] if result.thesis.targets else None,
+                "approved": result.validation.approved,
+                "alert_sent": result.alert_sent,
+            }
+            for result in results
+        ],
+        key=lambda item: (
+            SIGNAL_PRIORITY.get(item.get("signal", "reject"), 9),
+            int(item["rank"]),
+        ),
+    )
     if rows:
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
     else:
-        st.info("No candidates found.")
+        st.info("No deep scan candidates produced a setup table.")
 
-    for candidate, pack, thesis, validation in results:
+    for result in results:
+        candidate = result.candidate
+        pack = result.pack
+        thesis = result.thesis
+        validation = result.validation
         with st.expander(
-            f"{candidate.route_symbol} - {thesis.setup.value} / {thesis.signal.value}",
+            f"#{result.score.rank} {candidate.route_symbol} - {thesis.setup.value} / {thesis.signal.value}",
             expanded=thesis.signal.value in {"watch", "enter"},
         ):
             left, right = st.columns([2, 1])
@@ -234,6 +275,7 @@ def render_scan(coach: CoachMirandaMiner, use_tradingview: bool = True) -> None:
             with right:
                 st.metric("Signal", thesis.signal.value.upper())
                 st.metric("Confidence", f"{thesis.confidence:.0%}")
+                st.metric("Rank Score", f"{result.score.score:.1f}")
                 st.metric("Risk/Reward", thesis.risk_reward or "n/a")
                 st.write("Entry", _fmt(thesis.entry))
                 st.write("Stop", _fmt(thesis.stop_loss))
@@ -245,6 +287,8 @@ def render_scan(coach: CoachMirandaMiner, use_tradingview: bool = True) -> None:
                     for reason in validation.reasons:
                         st.warning(reason)
                 st.write("Evidence")
+                for reason in result.score.prefilter_reasons[:3]:
+                    st.write(f"- {reason}")
                 for item in thesis.evidence:
                     st.write(f"- {item}")
                 if candidate.trading_link:
@@ -276,6 +320,49 @@ def render_high_oi(coach: CoachMirandaMiner) -> None:
             for row in rows
         ]
     )
+
+
+def render_high_oi_from_scores(scores) -> None:
+    st.subheader("High OI + Volume")
+    rows = [
+        item
+        for item in scores
+        if item.oi_change_24h_pct is not None or item.volume_24h_usd is not None
+    ]
+    if not rows:
+        st.info("No OI or volume rows available from the current scan.")
+        return
+    frame = pd.DataFrame(
+        [
+            {
+                "rank": item.rank,
+                "symbol": item.symbol,
+                "score": item.score,
+                "oi_change_24h_pct": item.oi_change_24h_pct,
+                "volume_24h_usd": item.volume_24h_usd,
+                "relative_volume": item.relative_volume,
+            }
+            for item in sorted(
+                rows,
+                key=lambda row: (
+                    abs(row.oi_change_24h_pct or 0.0),
+                    row.volume_24h_usd or 0.0,
+                ),
+                reverse=True,
+            )[:30]
+        ]
+    )
+    st.dataframe(
+        frame,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "oi_change_24h_pct": st.column_config.NumberColumn("OI 24h %", format="%.2f%%"),
+            "volume_24h_usd": st.column_config.NumberColumn("24h Volume", format="$%.0f"),
+            "relative_volume": st.column_config.NumberColumn("15m Rel Vol", format="%.2fx"),
+            "score": st.column_config.NumberColumn("Score", format="%.1f"),
+        },
+    )
     st.dataframe(
         frame,
         use_container_width=True,
@@ -295,21 +382,39 @@ def render_history(coach: CoachMirandaMiner) -> None:
     rows = coach.journal.recent_theses(20)
     if not rows:
         st.caption("No saved signals yet.")
+    else:
+        frame = pd.DataFrame(
+            [
+                {
+                    "time": row["created_at"],
+                    "symbol": row["symbol"],
+                    "setup": row["setup"],
+                    "signal": row["signal"],
+                    "confidence": row["confidence"],
+                    "approved": row["approved"],
+                }
+                for row in rows
+            ]
+        )
+        st.dataframe(frame, use_container_width=True, hide_index=True)
+
+    st.subheader("Recent Alerts")
+    alerts = coach.journal.recent_alerts(20)
+    if not alerts:
+        st.caption("No Telegram alerts sent yet.")
         return
-    frame = pd.DataFrame(
+    alert_frame = pd.DataFrame(
         [
             {
                 "time": row["created_at"],
                 "symbol": row["symbol"],
                 "setup": row["setup"],
                 "signal": row["signal"],
-                "confidence": row["confidence"],
-                "approved": row["approved"],
             }
-            for row in rows
+            for row in alerts
         ]
     )
-    st.dataframe(frame, use_container_width=True, hide_index=True)
+    st.dataframe(alert_frame, use_container_width=True, hide_index=True)
 
 
 def _candlestick(pack: IntelligencePack, timeframe: str, thesis: TradeThesis) -> go.Figure:
@@ -430,6 +535,26 @@ def _tradingview_interval(timeframe: str) -> str:
 def _mode_index(mode: str) -> int:
     values = list(DATA_MODES.values())
     return values.index(mode) if mode in values else 0
+
+
+def _refresh_index(seconds: int) -> int:
+    values = [60, 180, 300, 900]
+    return values.index(seconds) if seconds in values else 3
+
+
+def _scan_cache_key(settings: Settings) -> tuple:
+    return (
+        settings.data_mode,
+        settings.prefilter_limit,
+        settings.deep_scan_limit,
+        settings.candle_limit,
+        tuple(settings.timeframes),
+        settings.min_confidence,
+        settings.min_risk_reward,
+        settings.min_volume_24h_usd,
+        bool(settings.coinalyze_api_key),
+        settings.telegram_min_signal,
+    )
 
 
 def _fmt(value: float | None) -> str:

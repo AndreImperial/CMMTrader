@@ -26,6 +26,10 @@ class Settings:
     candle_limit: int
     discovery_limit: int
     discovery_pool_limit: int
+    prefilter_limit: int
+    deep_scan_limit: int
+    auto_scan_enabled: bool
+    auto_scan_interval_seconds: int
     min_market_cap_usd: float
     oi_bases: list[str]
     oi_limit: int
@@ -80,6 +84,12 @@ class Settings:
             candle_limit=int(os.getenv("CANDLE_LIMIT", "200")),
             discovery_limit=int(os.getenv("DISCOVERY_LIMIT", "100")),
             discovery_pool_limit=int(os.getenv("DISCOVERY_POOL_LIMIT", "250")),
+            prefilter_limit=int(os.getenv("PREFILTER_LIMIT", os.getenv("DISCOVERY_LIMIT", "100"))),
+            deep_scan_limit=int(os.getenv("DEEP_SCAN_LIMIT", "20")),
+            auto_scan_enabled=_bool(os.getenv("AUTO_SCAN_ENABLED", "true")),
+            auto_scan_interval_seconds=int(
+                os.getenv("AUTO_SCAN_INTERVAL_SECONDS", os.getenv("SCAN_INTERVAL_SECONDS", "900"))
+            ),
             min_market_cap_usd=float(os.getenv("MIN_MARKET_CAP_USD", "100000000")),
             oi_bases=_csv(os.getenv("OI_BASES", "BTC,ETH,SOL,XRP,DOGE,ADA,AVAX,LINK,DOT")),
             oi_limit=int(os.getenv("OI_LIMIT", "8")),
@@ -106,7 +116,7 @@ class Settings:
             journal_db=os.getenv("JOURNAL_DB", "coach_miranda_miner.sqlite3"),
             telegram_bot_token=_optional(os.getenv("TELEGRAM_BOT_TOKEN")),
             telegram_chat_id=_optional(os.getenv("TELEGRAM_CHAT_ID")),
-            telegram_min_signal=os.getenv("TELEGRAM_MIN_SIGNAL", "enter").lower(),
+            telegram_min_signal=os.getenv("TELEGRAM_MIN_SIGNAL", "watch").lower(),
             alert_cooldown_minutes=int(os.getenv("ALERT_COOLDOWN_MINUTES", "180")),
         )
 

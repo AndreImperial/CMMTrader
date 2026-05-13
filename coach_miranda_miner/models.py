@@ -106,3 +106,24 @@ class TradeThesis(BaseModel):
 class ValidationResult(BaseModel):
     approved: bool
     reasons: list[str] = Field(default_factory=list)
+
+
+class SetupScore(BaseModel):
+    symbol: str
+    rank: int
+    score: float
+    volume_24h_usd: float | None = None
+    price_change_24h_pct: float | None = None
+    oi_change_24h_pct: float | None = None
+    relative_volume: float | None = None
+    btc_regime_ok: bool
+    prefilter_reasons: list[str] = Field(default_factory=list)
+
+
+class ScanSummary(BaseModel):
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    candidates_scanned: int
+    deep_analyzed: int
+    warnings: list[str] = Field(default_factory=list)
+    coinalyze_enabled: bool = False
+    market_regime: MarketRegime | None = None

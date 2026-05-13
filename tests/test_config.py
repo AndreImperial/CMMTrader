@@ -10,10 +10,31 @@ class SettingsTests(unittest.TestCase):
     def setUp(self) -> None:
         os.environ["COINALYZE_API_KEY"] = ""
         os.environ["COINALAYZE_API_KEY"] = ""
+        for name in [
+            "PREFILTER_LIMIT",
+            "DISCOVERY_LIMIT",
+            "DEEP_SCAN_LIMIT",
+            "AUTO_SCAN_ENABLED",
+            "AUTO_SCAN_INTERVAL_SECONDS",
+            "SCAN_INTERVAL_SECONDS",
+            "TELEGRAM_MIN_SIGNAL",
+        ]:
+            os.environ.pop(name, None)
+        os.environ["DISCOVERY_LIMIT"] = "100"
 
     def tearDown(self) -> None:
-        os.environ.pop("COINALYZE_API_KEY", None)
-        os.environ.pop("COINALAYZE_API_KEY", None)
+        for name in [
+            "COINALYZE_API_KEY",
+            "COINALAYZE_API_KEY",
+            "PREFILTER_LIMIT",
+            "DISCOVERY_LIMIT",
+            "DEEP_SCAN_LIMIT",
+            "AUTO_SCAN_ENABLED",
+            "AUTO_SCAN_INTERVAL_SECONDS",
+            "SCAN_INTERVAL_SECONDS",
+            "TELEGRAM_MIN_SIGNAL",
+        ]:
+            os.environ.pop(name, None)
 
     def test_coinalyze_key_uses_canonical_name(self) -> None:
         os.environ["COINALYZE_API_KEY"] = "canonical-key"
@@ -24,6 +45,15 @@ class SettingsTests(unittest.TestCase):
         os.environ["COINALAYZE_API_KEY"] = "misspelled-key"
 
         self.assertEqual(Settings.from_env().coinalyze_api_key, "misspelled-key")
+
+    def test_alert_upgrade_defaults(self) -> None:
+        settings = Settings.from_env()
+
+        self.assertEqual(settings.prefilter_limit, 100)
+        self.assertEqual(settings.deep_scan_limit, 20)
+        self.assertTrue(settings.auto_scan_enabled)
+        self.assertEqual(settings.auto_scan_interval_seconds, settings.scan_interval_seconds)
+        self.assertEqual(settings.telegram_min_signal, "watch")
 
 
 if __name__ == "__main__":

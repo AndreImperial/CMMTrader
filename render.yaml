@@ -22,6 +22,14 @@ services:
         value: "100"
       - key: DISCOVERY_POOL_LIMIT
         value: "250"
+      - key: PREFILTER_LIMIT
+        value: "100"
+      - key: DEEP_SCAN_LIMIT
+        value: "20"
+      - key: AUTO_SCAN_ENABLED
+        value: "true"
+      - key: AUTO_SCAN_INTERVAL_SECONDS
+        value: "900"
       - key: OI_LIMIT
         value: "8"
       - key: MIN_CONFIDENCE
@@ -29,7 +37,7 @@ services:
       - key: MIN_RISK_REWARD
         value: "2.0"
       - key: TELEGRAM_MIN_SIGNAL
-        value: enter
+        value: watch
       - key: ALERT_COOLDOWN_MINUTES
         value: "180"
       # Optional keys for better derivatives data:
