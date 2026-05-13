@@ -48,13 +48,15 @@ class Settings:
     journal_db: str
     telegram_bot_token: str | None
     telegram_chat_id: str | None
+    telegram_min_signal: str
+    alert_cooldown_minutes: int
 
     @classmethod
     def from_env(cls) -> "Settings":
         load_dotenv()
         return cls(
             trading_mode=os.getenv("TRADING_MODE", "paper").lower(),
-            data_mode=os.getenv("DATA_MODE", "paprika").lower(),
+            data_mode=os.getenv("DATA_MODE", "coinbase").lower(),
             analyzer_mode=os.getenv("ANALYZER_MODE", "rule").lower(),
             discovery_mode=os.getenv("DISCOVERY_MODE", "exchange").lower(),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
@@ -93,6 +95,8 @@ class Settings:
             journal_db=os.getenv("JOURNAL_DB", "coach_miranda_miner.sqlite3"),
             telegram_bot_token=_optional(os.getenv("TELEGRAM_BOT_TOKEN")),
             telegram_chat_id=_optional(os.getenv("TELEGRAM_CHAT_ID")),
+            telegram_min_signal=os.getenv("TELEGRAM_MIN_SIGNAL", "watch").lower(),
+            alert_cooldown_minutes=int(os.getenv("ALERT_COOLDOWN_MINUTES", "60")),
         )
 
 

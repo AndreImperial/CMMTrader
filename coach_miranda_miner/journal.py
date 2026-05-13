@@ -59,6 +59,18 @@ class Journal:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS telegram_alerts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    setup TEXT NOT NULL,
+                    signal TEXT NOT NULL,
+                    message TEXT NOT NULL
+                )
+                """
+            )
 
     def record_decision(
         self,
@@ -174,3 +186,43 @@ class Journal:
                 }
             )
         return results
+
+    def alert_sent_recently(
+        self,
+        symbol: str,
+        setup: str,
+        signal: str,
+        cooldown_minutes: int,
+    ) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT created_at
+                FROM telegram_alerts
+                WHERE symbol = ? AND setup = ? AND signal = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (symbol, setup, signal),
+            ).fetchone()
+        if row is None:
+            return False
+        created_at = datetime.fromisoformat(row[0])
+        elapsed = datetime.now(timezone.utc) - created_at
+        return elapsed.total_seconds() < cooldown_minutes * 60
+
+    def record_alert(self, symbol: str, setup: str, signal: str, message: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO telegram_alerts (created_at, symbol, setup, signal, message)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    datetime.now(timezone.utc).isoformat(),
+                    symbol,
+                    setup,
+                    signal,
+                    message,
+                ),
+            )

@@ -69,6 +69,7 @@ copy .env.example .env
 python -m coach_miranda_miner scan
 python -m coach_miranda_miner backtest --symbol BTC/USDT --timeframe 1h
 python -m coach_miranda_miner loop --interval 900
+python -m coach_miranda_miner alerts --interval 900
 python -m coach_miranda_miner doctor
 python -m unittest discover
 ```
@@ -150,7 +151,41 @@ ANALYZER_MODE=rule
 DISCOVERY_MODE=exchange
 TRADING_MODE=paper
 RENDER_CHARTS=false
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+TELEGRAM_MIN_SIGNAL=watch
+ALERT_COOLDOWN_MINUTES=60
 ```
+
+## Telegram Alerts
+
+Create a Telegram bot with BotFather, send one message to the bot, then set the
+bot token and chat id in Render.
+
+The dashboard sends Telegram alerts when you press **Scan Now** or enable
+auto-refresh. For alerts that run even when nobody is viewing the dashboard,
+create a second Render service as a **Background Worker** with:
+
+```text
+Build Command:
+pip install -r requirements.txt
+
+Start Command:
+python -m coach_miranda_miner alerts --interval 900
+```
+
+Keep the worker in paper/manual mode:
+
+```text
+DATA_MODE=coinbase
+QUOTE_CURRENCY=USD
+TRADING_MODE=paper
+TELEGRAM_MIN_SIGNAL=watch
+ALERT_COOLDOWN_MINUTES=60
+```
+
+The alert system does not place trades. It only notifies you so you can review
+and trade manually.
 
 ## Quality Controls
 

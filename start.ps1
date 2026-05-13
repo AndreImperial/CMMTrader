@@ -36,11 +36,12 @@ while ($true) {
     Write-Host "2. Open web dashboard"
     Write-Host "3. Run one scan"
     Write-Host "4. Run BTC backtest"
-    Write-Host "5. Run 15-minute loop"
-    Write-Host "6. Use offline demo data"
-    Write-Host "7. Use updating free prices"
-    Write-Host "8. Open settings file"
-    Write-Host "9. Exit"
+    Write-Host "5. Run Telegram alert loop"
+    Write-Host "6. Run 15-minute console loop"
+    Write-Host "7. Use offline demo data"
+    Write-Host "8. Use real Coinbase candles"
+    Write-Host "9. Open settings file"
+    Write-Host "10. Exit"
     Write-Host ""
 
     $choice = Read-Host "Choose"
@@ -63,23 +64,27 @@ while ($true) {
             Read-Host "Press Enter to continue"
         }
         "5" {
+            Write-Host "Starting Telegram alert loop. Press Ctrl+C to stop." -ForegroundColor Yellow
+            python -m coach_miranda_miner alerts --interval 900
+        }
+        "6" {
             Write-Host "Starting loop. Press Ctrl+C to stop." -ForegroundColor Yellow
             python -m coach_miranda_miner loop --interval 900
         }
-        "6" {
+        "7" {
             Set-DataMode -Mode "fixture"
             Write-Host "Set DATA_MODE=fixture" -ForegroundColor Green
             Read-Host "Press Enter to continue"
         }
-        "7" {
-            Set-DataMode -Mode "paprika"
-            Write-Host "Set DATA_MODE=paprika" -ForegroundColor Green
+        "8" {
+            Set-DataMode -Mode "coinbase"
+            Write-Host "Set DATA_MODE=coinbase" -ForegroundColor Green
             Read-Host "Press Enter to continue"
         }
-        "8" {
+        "9" {
             notepad .env
         }
-        "9" {
+        "10" {
             exit 0
         }
         default {

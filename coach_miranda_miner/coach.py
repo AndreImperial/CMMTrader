@@ -24,6 +24,7 @@ from .intelligence import IntelligenceGatherer
 from .journal import Journal
 from .market_cap import CoinMarketCapProvider, StaticMarketCapProvider
 from .miner import SignalMiner
+from .models import Candidate, MarketRegime, SignalState, TradeThesis, ValidationResult
 from .news import CryptoPanicNewsProvider, EmptyNewsProvider
 from .risk import RiskManager
 from .telegram import TelegramAlerter
@@ -219,12 +220,62 @@ class CoachMirandaMiner:
                 validation_json=validation.model_dump_json(),
             )
             message = self.alerts.format(candidate, thesis, validation)
-            self.telegram.send(message)
+            self.maybe_send_telegram_alert(candidate, thesis, validation, message)
             messages.append(message)
 
         if not messages:
             messages.append("Coach Miranda Miner: no routed candidates found.")
         return messages
+
+    def maybe_send_telegram_alert(
+        self,
+        candidate: Candidate,
+        thesis: TradeThesis,
+        validation: ValidationResult,
+        message: str,
+    ) -> bool:
+        if not self.telegram.configured:
+            return False
+        if not self._signal_meets_alert_threshold(thesis.signal):
+            return False
+        if thesis.direction == "none" or thesis.setup.value == "none":
+            return False
+        if self.journal.alert_sent_recently(
+            thesis.symbol,
+            thesis.setup.value,
+            thesis.signal.value,
+            self.settings.alert_cooldown_minutes,
+        ):
+            return False
+        prefix = "Coach Miranda Alert\n"
+        if thesis.signal == SignalState.WATCH:
+            prefix += "Manual review: setup is forming, not confirmed entry.\n\n"
+        if thesis.signal == SignalState.ENTER:
+            prefix += "Manual review: entry conditions are confirmed by rules.\n\n"
+        try:
+            sent = self.telegram.send(prefix + message)
+        except requests.RequestException:
+            return False
+        if sent:
+            self.journal.record_alert(
+                thesis.symbol,
+                thesis.setup.value,
+                thesis.signal.value,
+                message,
+            )
+        return sent
+
+    def _signal_meets_alert_threshold(self, signal: SignalState) -> bool:
+        thresholds = {
+            "enter": {SignalState.ENTER},
+            "watch": {SignalState.WATCH, SignalState.ENTER},
+            "wait": {SignalState.WAIT, SignalState.WATCH, SignalState.ENTER},
+        }
+        return signal in thresholds.get(self.settings.telegram_min_signal, thresholds["watch"])
+
+    def scan_for_alerts(self) -> str:
+        messages = self.scan()
+        return "\n\n".join(messages)
 
     def backtest(self, symbol: str | None = None, timeframe: str | None = None) -> BacktestResult:
         route_symbol = symbol or self.settings.symbol

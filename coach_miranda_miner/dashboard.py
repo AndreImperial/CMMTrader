@@ -144,6 +144,8 @@ def render_scan(coach: CoachMirandaMiner) -> None:
         thesis = coach.analyzer.analyze(pack)
         atr = next((item.atr for item in pack.indicators if item.timeframe == "15m"), None)
         validation = coach.validator.validate(thesis, market_regime, atr)
+        message = coach.alerts.format(candidate, thesis, validation)
+        coach.maybe_send_telegram_alert(candidate, thesis, validation, message)
         coach.journal.record_thesis(
             symbol=thesis.symbol,
             setup=thesis.setup.value,

@@ -15,6 +15,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("doctor", help="Check configuration and free-mode status")
     price = subparsers.add_parser("price", help="Fetch one live/updating price")
     price.add_argument("--symbol", default=None)
+    alerts = subparsers.add_parser("alerts", help="Run Telegram alert scans forever")
+    alerts.add_argument("--interval", type=int, default=None)
     loop = subparsers.add_parser("loop", help="Run scans forever on a fixed interval")
     loop.add_argument("--interval", type=int, default=None)
     backtest = subparsers.add_parser("backtest", help="Run a simple MA/RSI backtest")
@@ -44,6 +46,12 @@ def main() -> None:
         print(coach.doctor())
     if args.command == "price":
         print(coach.price(args.symbol))
+    if args.command == "alerts":
+        interval = args.interval or settings.scan_interval_seconds
+        while True:
+            print(coach.scan_for_alerts())
+            print(f"\nNext alert scan in {interval} seconds.")
+            time.sleep(interval)
     if args.command == "loop":
         interval = args.interval or settings.scan_interval_seconds
         while True:
