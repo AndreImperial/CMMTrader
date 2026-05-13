@@ -51,7 +51,7 @@ while ($true) {
             Read-Host "Press Enter to continue"
         }
         "2" {
-            python -m streamlit run coach_miranda_miner/dashboard.py --server.address 127.0.0.1 --server.port 8502
+            python -m streamlit run app.py --server.address 127.0.0.1 --server.port 8502
             Read-Host "Press Enter to continue"
         }
         "3" {

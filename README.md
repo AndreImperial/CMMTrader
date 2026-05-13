@@ -136,7 +136,7 @@ TRADING_MODE=paper
 Render start command:
 
 ```text
-streamlit run coach_miranda_miner/dashboard.py --server.address 0.0.0.0 --server.port $PORT --server.headless true
+streamlit run app.py --server.address 0.0.0.0 --server.port $PORT --server.headless true
 ```
 
 ## Quality Controls

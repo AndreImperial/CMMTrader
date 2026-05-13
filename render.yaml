@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: streamlit run coach_miranda_miner/dashboard.py --server.address 0.0.0.0 --server.port $PORT --server.headless true
+    startCommand: streamlit run app.py --server.address 0.0.0.0 --server.port $PORT --server.headless true
     envVars:
       - key: DATA_MODE
         value: paprika
@@ -16,4 +16,3 @@ services:
         value: paper
       - key: RENDER_CHARTS
         value: false
-
