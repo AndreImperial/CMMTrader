@@ -82,6 +82,12 @@ def main() -> None:
     status_cols[1].metric("Analyzer", settings.analyzer_mode)
     status_cols[2].metric("Trading Mode", settings.trading_mode)
     status_cols[3].metric("Telegram", "On" if coach.telegram.configured else "Off")
+    st.caption(
+        "Quality gates: "
+        f"min confidence {settings.min_confidence:.0%}, "
+        f"min R/R {settings.min_risk_reward:.1f}, "
+        f"Telegram alerts at {settings.telegram_min_signal.upper()} or better."
+    )
     if settings.data_mode == "coinbase":
         st.success("Using real public Coinbase OHLCV candles.")
     elif settings.data_mode == "paprika":

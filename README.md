@@ -153,8 +153,8 @@ TRADING_MODE=paper
 RENDER_CHARTS=false
 TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
-TELEGRAM_MIN_SIGNAL=watch
-ALERT_COOLDOWN_MINUTES=60
+TELEGRAM_MIN_SIGNAL=enter
+ALERT_COOLDOWN_MINUTES=180
 ```
 
 ## Telegram Alerts
@@ -180,8 +180,8 @@ Keep the worker in paper/manual mode:
 DATA_MODE=coinbase
 QUOTE_CURRENCY=USD
 TRADING_MODE=paper
-TELEGRAM_MIN_SIGNAL=watch
-ALERT_COOLDOWN_MINUTES=60
+TELEGRAM_MIN_SIGNAL=enter
+ALERT_COOLDOWN_MINUTES=180
 ```
 
 The alert system does not place trades. It only notifies you so you can review
@@ -192,8 +192,8 @@ and trade manually.
 The free analyzer and validator use these safety knobs:
 
 ```text
-MIN_CONFIDENCE=0.6
-MIN_RISK_REWARD=1.5
+MIN_CONFIDENCE=0.72
+MIN_RISK_REWARD=2.0
 MAX_STOP_ATR_MULTIPLE=3
 BTC_KILL_SWITCH_DROP_PCT=3
 MIN_VOLUME_24H_USD=50000000

@@ -18,6 +18,14 @@ services:
         value: paper
       - key: RENDER_CHARTS
         value: false
+      - key: MIN_CONFIDENCE
+        value: "0.72"
+      - key: MIN_RISK_REWARD
+        value: "2.0"
+      - key: TELEGRAM_MIN_SIGNAL
+        value: enter
+      - key: ALERT_COOLDOWN_MINUTES
+        value: "180"
   # Optional: create this as a separate Render worker if you want Telegram
   # alerts to run even when nobody has the dashboard open.
   # - type: worker
@@ -37,3 +45,11 @@ services:
   #       value: exchange
   #     - key: TRADING_MODE
   #       value: paper
+  #     - key: MIN_CONFIDENCE
+  #       value: "0.72"
+  #     - key: MIN_RISK_REWARD
+  #       value: "2.0"
+  #     - key: TELEGRAM_MIN_SIGNAL
+  #       value: enter
+  #     - key: ALERT_COOLDOWN_MINUTES
+  #       value: "180"

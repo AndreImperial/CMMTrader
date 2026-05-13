@@ -85,8 +85,8 @@ class Settings:
             max_daily_loss_usd=float(os.getenv("MAX_DAILY_LOSS_USD", "250")),
             btc_kill_switch_drop_pct=float(os.getenv("BTC_KILL_SWITCH_DROP_PCT", "3")),
             min_volume_24h_usd=float(os.getenv("MIN_VOLUME_24H_USD", "50000000")),
-            min_risk_reward=float(os.getenv("MIN_RISK_REWARD", "1.5")),
-            min_confidence=float(os.getenv("MIN_CONFIDENCE", "0.6")),
+            min_risk_reward=float(os.getenv("MIN_RISK_REWARD", "2.0")),
+            min_confidence=float(os.getenv("MIN_CONFIDENCE", "0.72")),
             max_stop_atr_multiple=float(os.getenv("MAX_STOP_ATR_MULTIPLE", "3")),
             backtest_fee_bps=float(os.getenv("BACKTEST_FEE_BPS", "10")),
             backtest_slippage_bps=float(os.getenv("BACKTEST_SLIPPAGE_BPS", "5")),
@@ -95,8 +95,8 @@ class Settings:
             journal_db=os.getenv("JOURNAL_DB", "coach_miranda_miner.sqlite3"),
             telegram_bot_token=_optional(os.getenv("TELEGRAM_BOT_TOKEN")),
             telegram_chat_id=_optional(os.getenv("TELEGRAM_CHAT_ID")),
-            telegram_min_signal=os.getenv("TELEGRAM_MIN_SIGNAL", "watch").lower(),
-            alert_cooldown_minutes=int(os.getenv("ALERT_COOLDOWN_MINUTES", "60")),
+            telegram_min_signal=os.getenv("TELEGRAM_MIN_SIGNAL", "enter").lower(),
+            alert_cooldown_minutes=int(os.getenv("ALERT_COOLDOWN_MINUTES", "180")),
         )
 
 
