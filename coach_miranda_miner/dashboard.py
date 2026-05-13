@@ -39,6 +39,7 @@ DATA_MODES = {
 }
 
 SIGNAL_PRIORITY = {"enter": 0, "watch": 1, "wait": 2, "reject": 3}
+TRADINGVIEW_HEIGHT = 620
 
 
 def main() -> None:
@@ -217,7 +218,7 @@ def render_scan(coach: CoachMirandaMiner, use_tradingview: bool = True) -> None:
                 if use_tradingview:
                     components.html(
                         _tradingview_widget(candidate.route_symbol, timeframe),
-                        height=620,
+                        height=TRADINGVIEW_HEIGHT,
                     )
                     st.caption(
                         "TradingView tools are available inside the chart. "
@@ -364,11 +365,31 @@ def _candlestick(pack: IntelligencePack, timeframe: str, thesis: TradeThesis) ->
 
 def _tradingview_widget(symbol: str, timeframe: str) -> str:
     return f"""
-    <div class="tradingview-widget-container" style="height:600px;width:100%">
-      <div class="tradingview-widget-container__widget" style="height:calc(100% - 32px);width:100%"></div>
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        html, body {{
+          height: 100%;
+          width: 100%;
+          margin: 0;
+          overflow: hidden;
+          background: #0b0e11;
+        }}
+        .tradingview-widget-container,
+        .tradingview-widget-container__widget {{
+          height: 100%;
+          width: 100%;
+        }}
+      </style>
+    </head>
+    <body>
+    <div class="tradingview-widget-container">
+      <div class="tradingview-widget-container__widget"></div>
       <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
       {{
-        "autosize": true,
+        "width": "100%",
+        "height": {TRADINGVIEW_HEIGHT},
         "symbol": "{_tradingview_symbol(symbol)}",
         "interval": "{_tradingview_interval(timeframe)}",
         "timezone": "Etc/UTC",
@@ -386,6 +407,8 @@ def _tradingview_widget(symbol: str, timeframe: str) -> str:
       }}
       </script>
     </div>
+    </body>
+    </html>
     """
 
 
