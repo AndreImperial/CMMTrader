@@ -37,6 +37,8 @@ DATA_MODES = {
     "Offline demo": "fixture",
 }
 
+SIGNAL_PRIORITY = {"enter": 0, "watch": 1, "wait": 2, "reject": 3}
+
 
 def main() -> None:
     st.set_page_config(
@@ -60,6 +62,7 @@ def main() -> None:
         auto_refresh = st.checkbox("Auto refresh")
         refresh_seconds = st.selectbox("Refresh interval", [60, 180, 300, 900], index=1)
         run_scan = st.button("Scan Now", type="primary", use_container_width=True)
+        show_history = st.checkbox("Show signal history", value=True)
 
         st.divider()
         st.write("Execution")
@@ -79,11 +82,22 @@ def main() -> None:
     status_cols[1].metric("Analyzer", settings.analyzer_mode)
     status_cols[2].metric("Trading Mode", settings.trading_mode)
     status_cols[3].metric("Telegram", "On" if coach.telegram.configured else "Off")
+    if settings.data_mode == "coinbase":
+        st.success("Using real public Coinbase OHLCV candles.")
+    elif settings.data_mode == "paprika":
+        st.warning("CoinPaprika mode has live prices but approximated intraday candles.")
+    elif settings.data_mode == "live":
+        st.warning("Direct exchange mode may be blocked by Render server location.")
+    elif settings.data_mode == "fixture":
+        st.warning("Offline demo mode uses synthetic candles.")
 
     if run_scan or auto_refresh:
         render_scan(coach)
     else:
         st.info("Press Scan Now to look for setups.")
+
+    if show_history:
+        render_history(coach)
 
     if auto_refresh:
         time.sleep(refresh_seconds)
@@ -130,6 +144,16 @@ def render_scan(coach: CoachMirandaMiner) -> None:
         thesis = coach.analyzer.analyze(pack)
         atr = next((item.atr for item in pack.indicators if item.timeframe == "15m"), None)
         validation = coach.validator.validate(thesis, market_regime, atr)
+        coach.journal.record_thesis(
+            symbol=thesis.symbol,
+            setup=thesis.setup.value,
+            signal=thesis.signal.value,
+            direction=thesis.direction,
+            confidence=thesis.confidence,
+            approved=validation.approved,
+            payload_json=thesis.model_dump_json(),
+            validation_json=validation.model_dump_json(),
+        )
         results.append((candidate, pack, thesis, validation))
         rows.append(
             {
@@ -145,6 +169,14 @@ def render_scan(coach: CoachMirandaMiner) -> None:
             }
         )
     progress.empty()
+
+    rows = sorted(
+        rows,
+        key=lambda item: (
+            SIGNAL_PRIORITY.get(item.get("signal", "reject"), 9),
+            -float(item.get("confidence") or 0),
+        ),
+    )
 
     st.subheader("Signals")
     if rows:
@@ -168,7 +200,7 @@ def render_scan(coach: CoachMirandaMiner) -> None:
                     key=f"tf-{candidate.route_symbol}",
                 )
                 st.plotly_chart(
-                    _candlestick(pack, timeframe),
+                    _candlestick(pack, timeframe, thesis),
                     use_container_width=True,
                     key=f"chart-{candidate.route_symbol}-{timeframe}",
                 )
@@ -192,27 +224,76 @@ def render_scan(coach: CoachMirandaMiner) -> None:
                     st.link_button("Open Trading Page", candidate.trading_link)
 
 
-def _candlestick(pack: IntelligencePack, timeframe: str) -> go.Figure:
-    candles = pack.candles[timeframe]
-    frame = pd.DataFrame([item.model_dump() for item in candles])
-    fig = go.Figure(
-        data=[
-            go.Candlestick(
-                x=frame["timestamp"],
-                open=frame["open"],
-                high=frame["high"],
-                low=frame["low"],
-                close=frame["close"],
-                name=timeframe,
-            )
+def render_history(coach: CoachMirandaMiner) -> None:
+    st.subheader("Recent Signal History")
+    rows = coach.journal.recent_theses(20)
+    if not rows:
+        st.caption("No saved signals yet.")
+        return
+    frame = pd.DataFrame(
+        [
+            {
+                "time": row["created_at"],
+                "symbol": row["symbol"],
+                "setup": row["setup"],
+                "signal": row["signal"],
+                "confidence": row["confidence"],
+                "approved": row["approved"],
+            }
+            for row in rows
         ]
     )
+    st.dataframe(frame, use_container_width=True, hide_index=True)
+
+
+def _candlestick(pack: IntelligencePack, timeframe: str, thesis: TradeThesis) -> go.Figure:
+    candles = pack.candles[timeframe]
+    frame = pd.DataFrame([item.model_dump() for item in candles])
+    fig = go.Figure()
+    fig.add_trace(
+        go.Candlestick(
+            x=frame["timestamp"],
+            open=frame["open"],
+            high=frame["high"],
+            low=frame["low"],
+            close=frame["close"],
+            name=timeframe,
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            x=frame["timestamp"],
+            y=frame["volume"],
+            name="Volume",
+            marker_color="rgba(120, 160, 220, 0.35)",
+            yaxis="y2",
+        )
+    )
+    for value, color, label in [
+        (thesis.entry, "#3b82f6", "Entry"),
+        (thesis.stop_loss, "#ef4444", "Stop"),
+    ]:
+        if value is not None:
+            fig.add_hline(y=value, line_color=color, line_dash="dash", annotation_text=label)
+    for index, target in enumerate(thesis.targets, start=1):
+        fig.add_hline(
+            y=target,
+            line_color="#22c55e",
+            line_dash="dot",
+            annotation_text=f"Target {index}",
+        )
     fig.update_layout(
         height=520,
         margin=dict(l=10, r=10, t=35, b=10),
         xaxis_rangeslider_visible=False,
         template="plotly_dark",
         title=f"{pack.candidate.route_symbol} {timeframe}",
+        yaxis2=dict(
+            overlaying="y",
+            side="right",
+            showgrid=False,
+            visible=False,
+        ),
     )
     return fig
 

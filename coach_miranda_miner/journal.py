@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import sqlite3
 
 
@@ -144,3 +145,32 @@ class Journal:
                     validation_json,
                 ),
             )
+
+    def recent_theses(self, limit: int = 25) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT created_at, symbol, setup, signal, direction, confidence,
+                       approved, payload_json, validation_json
+                FROM ai_theses
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        results = []
+        for row in rows:
+            results.append(
+                {
+                    "created_at": row[0],
+                    "symbol": row[1],
+                    "setup": row[2],
+                    "signal": row[3],
+                    "direction": row[4],
+                    "confidence": row[5],
+                    "approved": bool(row[6]),
+                    "payload": json.loads(row[7]),
+                    "validation": json.loads(row[8]),
+                }
+            )
+        return results

@@ -52,7 +52,7 @@ class RuleBasedAnalyzer(Analyzer):
                 pack,
                 Setup.TRANSITION_PLAY,
                 prison,
-                confidence=0.66,
+                confidence=_confidence(0.58, prison, volume_confirmed, compression, macd_bullish),
                 evidence=[
                     "RSI is recovering from a weak zone.",
                     "1h MACD momentum supports reversal conditions.",
@@ -65,7 +65,7 @@ class RuleBasedAnalyzer(Analyzer):
                 pack,
                 Setup.BOUNCE,
                 prison,
-                confidence=0.64,
+                confidence=_confidence(0.58, prison, volume_confirmed, compression, macd_bullish),
                 evidence=[
                     f"Support zone has {support['touches']} wick touches.",
                     "Latest candles show rejection near support.",
@@ -86,7 +86,7 @@ class RuleBasedAnalyzer(Analyzer):
                 pack,
                 Setup.APEX_SQUEEZE,
                 prison if volume_confirmed else SignalState.WATCH,
-                confidence=0.7 if volume_confirmed else 0.58,
+                confidence=_confidence(0.62, prison, volume_confirmed, compression, macd_bullish),
                 evidence=evidence,
             )
 
@@ -100,7 +100,7 @@ class RuleBasedAnalyzer(Analyzer):
                 pack,
                 Setup.TABO,
                 prison,
-                confidence=0.62,
+                confidence=_confidence(0.56, prison, volume_confirmed, compression, macd_bullish),
                 evidence=[
                     "1h MACD is above signal.",
                     "15m RSI is in a tradable continuation range.",
@@ -326,3 +326,26 @@ def _transition_play(tf_15m, tf_1h) -> bool:
     if tf_15m.rsi is None or tf_1h.macd is None or tf_1h.macd_signal is None:
         return False
     return 35 <= tf_15m.rsi <= 48 and tf_1h.macd > tf_1h.macd_signal
+
+
+def _confidence(
+    base: float,
+    prison: SignalState,
+    volume_confirmed: bool,
+    compression: float,
+    macd_bullish: bool,
+) -> float:
+    score = base
+    if prison == SignalState.WATCH:
+        score += 0.04
+    if prison == SignalState.ENTER:
+        score += 0.12
+    if volume_confirmed:
+        score += 0.08
+    if compression < 0.7:
+        score += 0.05
+    if macd_bullish:
+        score += 0.04
+    if prison == SignalState.REJECT:
+        score -= 0.18
+    return max(0.0, min(score, 0.92))

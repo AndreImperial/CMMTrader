@@ -140,6 +140,18 @@ Render start command:
 streamlit run app.py --server.address 0.0.0.0 --server.port $PORT --server.headless true
 ```
 
+Recommended Render environment variables:
+
+```text
+DATA_MODE=coinbase
+QUOTE_CURRENCY=USD
+SYMBOL=BTC/USD
+ANALYZER_MODE=rule
+DISCOVERY_MODE=exchange
+TRADING_MODE=paper
+RENDER_CHARTS=false
+```
+
 ## Quality Controls
 
 The free analyzer and validator use these safety knobs:

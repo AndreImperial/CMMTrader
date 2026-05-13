@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import math
+import time
 from urllib.parse import quote
 
 import ccxt
@@ -591,21 +592,20 @@ class CoinbaseRouter:
         self.session.headers.update({"User-Agent": "CMMTrader"})
         self.base_url = "https://api.exchange.coinbase.com"
         self._ticker_cache: dict[str, TickerSnapshot] = {}
+        self._candle_cache: dict[tuple[str, str, int], pd.DataFrame] = {}
 
     def fetch_ticker(self, exchange_id: str, symbol: str) -> TickerSnapshot:
         if symbol in self._ticker_cache:
             return self._ticker_cache[symbol]
         product = _coinbase_product(symbol.split("/")[0])
-        ticker_response = self.session.get(
+        ticker_response = _get_with_retry(
+            self.session,
             f"{self.base_url}/products/{product}/ticker",
-            timeout=30,
         )
-        ticker_response.raise_for_status()
-        stats_response = self.session.get(
+        stats_response = _get_with_retry(
+            self.session,
             f"{self.base_url}/products/{product}/stats",
-            timeout=30,
         )
-        stats_response.raise_for_status()
         ticker_payload = ticker_response.json()
         stats_payload = stats_response.json()
         last = float(ticker_payload["price"])
@@ -638,13 +638,16 @@ class CoinbaseRouter:
         timeframe: str,
         limit: int,
     ) -> pd.DataFrame:
+        cache_key = (symbol, timeframe, limit)
+        if cache_key in self._candle_cache:
+            return self._candle_cache[cache_key].copy()
+
         product = _coinbase_product(symbol.split("/")[0])
-        response = self.session.get(
+        response = _get_with_retry(
+            self.session,
             f"{self.base_url}/products/{product}/candles",
             params={"granularity": _coinbase_granularity(timeframe)},
-            timeout=30,
         )
-        response.raise_for_status()
         rows = response.json()
         frame = pd.DataFrame(
             rows,
@@ -652,7 +655,9 @@ class CoinbaseRouter:
         )
         frame["timestamp"] = pd.to_datetime(frame["timestamp"], unit="s", utc=True)
         frame = frame.sort_values("timestamp")
-        return frame[["timestamp", "open", "high", "low", "close", "volume"]].tail(limit).reset_index(drop=True)
+        candles = frame[["timestamp", "open", "high", "low", "close", "volume"]].tail(limit).reset_index(drop=True)
+        self._candle_cache[cache_key] = candles
+        return candles.copy()
 
     def first_available_route(self, base: str, quote_currency: str) -> tuple[str, str] | None:
         if base.upper() not in COINBASE_PRODUCTS:
@@ -674,3 +679,28 @@ def _coinbase_granularity(timeframe: str) -> int:
         "4h": 21600,
         "1d": 86400,
     }.get(timeframe, 3600)
+
+
+def _get_with_retry(
+    session: requests.Session,
+    url: str,
+    params: dict | None = None,
+    attempts: int = 3,
+) -> requests.Response:
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            response = session.get(url, params=params, timeout=30)
+            if response.status_code in {429, 500, 502, 503, 504} and attempt < attempts - 1:
+                time.sleep(0.75 * (attempt + 1))
+                continue
+            response.raise_for_status()
+            return response
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt < attempts - 1:
+                time.sleep(0.75 * (attempt + 1))
+                continue
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError(f"Request failed for {url}")
