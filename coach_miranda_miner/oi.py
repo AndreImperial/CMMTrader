@@ -47,7 +47,7 @@ class OpenInterestScanner:
 
     def scan(self) -> tuple[list[OISnapshot], list[str]]:
         warnings: list[str] = []
-        snapshots = self._scan_coinalyze(warnings)
+        snapshots = self.scan_coinalyze_only(warnings)
         if snapshots:
             return self._merge_volume(snapshots), warnings
 
@@ -64,6 +64,17 @@ class OpenInterestScanner:
             )
             return self._volume_only_fallback(), warnings
         return self._merge_volume(snapshots), warnings
+
+    def scan_coinalyze_only(
+        self,
+        warnings: list[str] | None = None,
+        merge_volume: bool = True,
+    ) -> list[OISnapshot]:
+        warning_list = warnings if warnings is not None else []
+        snapshots = self._scan_coinalyze(warning_list)
+        if merge_volume and snapshots:
+            return self._merge_volume(snapshots)
+        return snapshots
 
     def _scan_okx(self, warnings: list[str]) -> list[OISnapshot]:
         try:

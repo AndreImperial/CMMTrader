@@ -124,6 +124,7 @@ def main() -> None:
 
     if show_history:
         render_history(coach)
+        render_calibration(coach)
 
     if auto_refresh:
         time.sleep(refresh_seconds)
@@ -415,6 +416,26 @@ def render_history(coach: CoachMirandaMiner) -> None:
         ]
     )
     st.dataframe(alert_frame, use_container_width=True, hide_index=True)
+
+
+def render_calibration(coach: CoachMirandaMiner) -> None:
+    st.subheader("Setup Calibration")
+    rows = coach.journal.setup_calibration(500)
+    if not rows:
+        st.caption("No setup score history yet.")
+        return
+    frame = pd.DataFrame(rows)
+    st.dataframe(
+        frame,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "avg_score": st.column_config.NumberColumn("Avg Score", format="%.1f"),
+            "avg_confidence": st.column_config.NumberColumn("Avg Confidence", format="%.2f"),
+            "avg_relative_volume": st.column_config.NumberColumn("Avg Rel Vol", format="%.2fx"),
+            "avg_oi_change_24h_pct": st.column_config.NumberColumn("Avg OI 24h %", format="%.2f%%"),
+        },
+    )
 
 
 def _candlestick(pack: IntelligencePack, timeframe: str, thesis: TradeThesis) -> go.Figure:

@@ -71,6 +71,24 @@ class Journal:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS setup_scores (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    setup TEXT NOT NULL,
+                    signal TEXT NOT NULL,
+                    rank INTEGER NOT NULL,
+                    score REAL NOT NULL,
+                    confidence REAL NOT NULL,
+                    approved INTEGER NOT NULL,
+                    volume_24h_usd REAL,
+                    oi_change_24h_pct REAL,
+                    relative_volume REAL
+                )
+                """
+            )
 
     def record_decision(
         self,
@@ -227,6 +245,42 @@ class Journal:
                 ),
             )
 
+    def record_setup_score(
+        self,
+        symbol: str,
+        setup: str,
+        signal: str,
+        rank: int,
+        score: float,
+        confidence: float,
+        approved: bool,
+        volume_24h_usd: float | None,
+        oi_change_24h_pct: float | None,
+        relative_volume: float | None,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO setup_scores (
+                    created_at, symbol, setup, signal, rank, score, confidence,
+                    approved, volume_24h_usd, oi_change_24h_pct, relative_volume
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    datetime.now(timezone.utc).isoformat(),
+                    symbol,
+                    setup,
+                    signal,
+                    rank,
+                    score,
+                    confidence,
+                    int(approved),
+                    volume_24h_usd,
+                    oi_change_24h_pct,
+                    relative_volume,
+                ),
+            )
+
     def recent_alerts(self, limit: int = 20) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -245,6 +299,38 @@ class Journal:
                 "setup": row[2],
                 "signal": row[3],
                 "message": row[4],
+            }
+            for row in rows
+        ]
+
+    def setup_calibration(self, limit: int = 500) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT setup, signal, COUNT(*), AVG(score), AVG(confidence),
+                       SUM(approved), AVG(relative_volume), AVG(oi_change_24h_pct)
+                FROM (
+                    SELECT setup, signal, score, confidence, approved,
+                           relative_volume, oi_change_24h_pct
+                    FROM setup_scores
+                    ORDER BY id DESC
+                    LIMIT ?
+                )
+                GROUP BY setup, signal
+                ORDER BY AVG(score) DESC
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "setup": row[0],
+                "signal": row[1],
+                "count": row[2],
+                "avg_score": row[3],
+                "avg_confidence": row[4],
+                "approved_count": row[5],
+                "avg_relative_volume": row[6],
+                "avg_oi_change_24h_pct": row[7],
             }
             for row in rows
         ]

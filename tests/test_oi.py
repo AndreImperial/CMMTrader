@@ -79,6 +79,15 @@ class OIScannerTests(unittest.TestCase):
         self.assertEqual(scanner._coinalyze_symbols(), {"BTC": "BTCUSDT_PERP.A"})
         self.assertIsNone(scanner.session.last_params)
 
+    def test_scan_coinalyze_only_skips_exchange_fallbacks(self) -> None:
+        scanner = OpenInterestScanner(FakeRouter(), ["BTC"], None)
+
+        warnings = []
+        rows = scanner.scan_coinalyze_only(warnings)
+
+        self.assertEqual(rows, [])
+        self.assertIn("Coinalyze API key not configured", warnings[0])
+
     def test_coinalyze_http_errors_show_render_secret_hint(self) -> None:
         scanner = OpenInterestScanner(FakeRouter(), ["BTC"], "bad-key")
         scanner.session = FakeSession([])

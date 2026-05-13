@@ -223,6 +223,18 @@ class CoachMirandaMiner:
                 payload_json=thesis.model_dump_json(),
                 validation_json=validation.model_dump_json(),
             )
+            self.journal.record_setup_score(
+                symbol=thesis.symbol,
+                setup=thesis.setup.value,
+                signal=thesis.signal.value,
+                rank=score.rank,
+                score=score.score,
+                confidence=thesis.confidence,
+                approved=validation.approved,
+                volume_24h_usd=score.volume_24h_usd,
+                oi_change_24h_pct=score.oi_change_24h_pct,
+                relative_volume=score.relative_volume,
+            )
             message = self.alerts.format(candidate, thesis, validation, score)
             alert_sent = self.maybe_send_telegram_alert(candidate, thesis, validation, message)
             deep_results.append(
@@ -255,8 +267,7 @@ class CoachMirandaMiner:
             return {}
         bases = sorted({candidate.asset.base for candidate in candidates})
         scanner = OpenInterestScanner(self.router, bases, self.settings.coinalyze_api_key)
-        rows = scanner._scan_coinalyze(warnings)
-        rows = scanner._merge_volume(rows) if rows else []
+        rows = scanner.scan_coinalyze_only(warnings)
         return {row.symbol.split("/")[0]: row for row in rows}
 
     def _relative_volume_for(self, candidate: Candidate, warnings: list[str]) -> float | None:
@@ -432,11 +443,30 @@ class CoachMirandaMiner:
         limit: int | None = None,
         all_rows: bool = False,
     ) -> tuple[list[OISnapshot], list[str]]:
+        if self.settings.coinalyze_api_key and not all_rows:
+            rows, warnings = self._dynamic_coinalyze_watchlist()
+            if rows:
+                row_limit = self.settings.oi_limit if limit is None else limit
+                if all_rows:
+                    return rows, warnings
+                return rows[:row_limit], warnings
         rows, warnings = self.oi_scanner.scan()
         if all_rows:
             return rows, warnings
         row_limit = self.settings.oi_limit if limit is None else limit
         return rows[:row_limit], warnings
+
+    def _dynamic_coinalyze_watchlist(self) -> tuple[list[OISnapshot], list[str]]:
+        warnings: list[str] = []
+        try:
+            candidates = self.discovery.discover(self.settings.prefilter_limit)
+        except (CcxtError, requests.RequestException, ValueError) as exc:
+            warnings.append(f"Dynamic OI universe unavailable: {exc}")
+            return [], warnings
+        bases = sorted({candidate.asset.base for candidate in candidates})
+        scanner = OpenInterestScanner(self.router, bases, self.settings.coinalyze_api_key)
+        rows = scanner.scan_coinalyze_only(warnings)
+        return rows, warnings
 
     def backtest(self, symbol: str | None = None, timeframe: str | None = None) -> BacktestResult:
         route_symbol = symbol or self.settings.symbol

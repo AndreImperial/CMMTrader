@@ -172,6 +172,9 @@ class FakeJournal:
     def record_thesis(self, **kwargs) -> None:
         return None
 
+    def record_setup_score(self, **kwargs) -> None:
+        return None
+
     def alert_sent_recently(self, *args) -> bool:
         return False
 
