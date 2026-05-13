@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -41,6 +42,8 @@ class OpenInterestScanner:
         self.coinalyze_api_key = coinalyze_api_key
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "CMMTrader"})
+        if self.coinalyze_api_key:
+            self.session.headers.update({"api_key": self.coinalyze_api_key})
 
     def scan(self) -> tuple[list[OISnapshot], list[str]]:
         warnings: list[str] = []
@@ -224,7 +227,7 @@ class OpenInterestScanner:
             warnings.append(f"Coinalyze markets unavailable: {exc}")
             return []
 
-        selected = [symbols[base] for base in self.bases if base in symbols]
+        selected = [(base, symbols[base]) for base in self.bases if base in symbols]
         if not selected:
             warnings.append("Coinalyze returned no matching USDT perpetual symbols.")
             return []
@@ -233,12 +236,12 @@ class OpenInterestScanner:
         now = int(datetime.now(timezone.utc).timestamp())
         start = int((datetime.now(timezone.utc) - timedelta(hours=24)).timestamp())
         for chunk in _chunks(selected, 20):
+            symbol_to_base = {symbol: base for base, symbol in chunk}
             try:
                 response = self.session.get(
                     "https://api.coinalyze.net/v1/open-interest-history",
                     params={
-                        "api_key": self.coinalyze_api_key,
-                        "symbols": ",".join(chunk),
+                        "symbols": ",".join(symbol_to_base.keys()),
                         "interval": "1hour",
                         "from": start,
                         "to": now,
@@ -246,7 +249,7 @@ class OpenInterestScanner:
                     },
                     timeout=30,
                 )
-                response.raise_for_status()
+                _raise_for_status(response, "Coinalyze OI history")
             except requests.RequestException as exc:
                 warnings.append(f"Coinalyze OI history unavailable: {exc}")
                 continue
@@ -259,7 +262,7 @@ class OpenInterestScanner:
                 last = _float_or_none(history[-1].get("c"))
                 if first is None or last is None or first == 0:
                     continue
-                base = _base_from_coinalyze_symbol(item.get("symbol", ""))
+                base = symbol_to_base.get(item.get("symbol", ""))
                 if base is None:
                     continue
                 change = ((last - first) / first) * 100
@@ -281,10 +284,9 @@ class OpenInterestScanner:
     def _coinalyze_symbols(self) -> dict[str, str]:
         response = self.session.get(
             "https://api.coinalyze.net/v1/future-markets",
-            params={"api_key": self.coinalyze_api_key},
             timeout=30,
         )
-        response.raise_for_status()
+        _raise_for_status(response, "Coinalyze future markets")
         by_base: dict[str, str] = {}
         for item in response.json():
             base = item.get("base_asset")
@@ -325,13 +327,32 @@ def _timestamp_seconds(value) -> datetime:
     return datetime.fromtimestamp(number, timezone.utc)
 
 
-def _chunks(items: list[str], size: int):
+def _chunks(items: Sequence, size: int):
     for index in range(0, len(items), size):
         yield items[index : index + size]
 
 
-def _base_from_coinalyze_symbol(symbol: str) -> str | None:
-    for base in DEFAULT_OI_BASES:
-        if symbol.startswith(base):
-            return base
-    return None
+def _raise_for_status(response, context: str) -> None:
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        status_code = getattr(response, "status_code", None)
+        retry_after = getattr(response, "headers", {}).get("Retry-After")
+        body = _short_response_body(response)
+        detail = f"{context} HTTP {status_code}" if status_code else context
+        if status_code == 401:
+            detail += " - invalid or missing COINALYZE_API_KEY in Render."
+        elif status_code == 429:
+            detail += " - rate limited by Coinalyze."
+            if retry_after:
+                detail += f" Retry after {retry_after}s."
+        elif status_code == 400:
+            detail += " - bad request; check symbols/interval parameters."
+        if body:
+            detail += f" Response: {body}"
+        raise requests.HTTPError(detail, response=response) from exc
+
+
+def _short_response_body(response) -> str:
+    text = getattr(response, "text", "") or ""
+    return " ".join(text.split())[:240]

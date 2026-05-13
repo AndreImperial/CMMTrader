@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import requests
 import unittest
 
 from coach_miranda_miner.oi import OpenInterestScanner
@@ -21,10 +22,15 @@ class FakeRouter:
 
 
 class FakeResponse:
-    def __init__(self, payload) -> None:
+    def __init__(self, payload, status_code: int = 200, text: str = "") -> None:
         self.payload = payload
+        self.status_code = status_code
+        self.text = text
+        self.headers = {}
 
     def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"{self.status_code} error", response=self)
         return None
 
     def json(self):
@@ -35,8 +41,10 @@ class FakeSession:
     def __init__(self, payload) -> None:
         self.payload = payload
         self.headers = {}
+        self.last_params = None
 
     def get(self, url: str, params=None, timeout=None) -> FakeResponse:
+        self.last_params = params
         return FakeResponse(self.payload)
 
 
@@ -50,6 +58,7 @@ class OIScannerTests(unittest.TestCase):
 
     def test_coinalyze_symbols_use_perpetual_flag(self) -> None:
         scanner = OpenInterestScanner(FakeRouter(), ["BTC"], "test-key")
+        self.assertEqual(scanner.session.headers["api_key"], "test-key")
         scanner.session = FakeSession(
             [
                 {
@@ -68,6 +77,21 @@ class OIScannerTests(unittest.TestCase):
         )
 
         self.assertEqual(scanner._coinalyze_symbols(), {"BTC": "BTCUSDT_PERP.A"})
+        self.assertIsNone(scanner.session.last_params)
+
+    def test_coinalyze_http_errors_show_render_secret_hint(self) -> None:
+        scanner = OpenInterestScanner(FakeRouter(), ["BTC"], "bad-key")
+        scanner.session = FakeSession([])
+
+        def get(url: str, params=None, timeout=None) -> FakeResponse:
+            return FakeResponse({"error": "invalid"}, status_code=401, text="invalid api key")
+
+        scanner.session.get = get
+        warnings = []
+        rows = scanner._scan_coinalyze(warnings)
+
+        self.assertEqual(rows, [])
+        self.assertIn("invalid or missing COINALYZE_API_KEY", warnings[0])
 
 
 if __name__ == "__main__":
