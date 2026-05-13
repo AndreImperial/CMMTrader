@@ -66,7 +66,10 @@ class Settings:
             openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
             coinmarketcap_api_key=_optional(os.getenv("COINMARKETCAP_API_KEY")),
             cryptopanic_api_key=_optional(os.getenv("CRYPTOPANIC_API_KEY")),
-            coinalyze_api_key=_optional(os.getenv("COINALYZE_API_KEY")),
+            coinalyze_api_key=_first_optional(
+                "COINALYZE_API_KEY",
+                "COINALAYZE_API_KEY",
+            ),
             coinglass_api_key=_optional(os.getenv("COINGLASS_API_KEY")),
             exchange_ids=_csv(os.getenv("EXCHANGE_IDS", "binance,bybit,okx")),
             exchange_id=os.getenv("EXCHANGE_ID", "binance"),
@@ -120,3 +123,11 @@ def _optional(value: str | None) -> str | None:
     if value is None or not value.strip():
         return None
     return value.strip()
+
+
+def _first_optional(*names: str) -> str | None:
+    for name in names:
+        value = _optional(os.getenv(name))
+        if value is not None:
+            return value
+    return None

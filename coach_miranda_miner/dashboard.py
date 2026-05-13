@@ -81,11 +81,12 @@ def main() -> None:
     )
     coach = CoachMirandaMiner(settings)
 
-    status_cols = st.columns(4)
+    status_cols = st.columns(5)
     status_cols[0].metric("Data Mode", settings.data_mode)
     status_cols[1].metric("Analyzer", settings.analyzer_mode)
     status_cols[2].metric("Trading Mode", settings.trading_mode)
     status_cols[3].metric("Telegram", "On" if coach.telegram.configured else "Off")
+    status_cols[4].metric("Coinalyze", "On" if settings.coinalyze_api_key else "Off")
     st.caption(
         "Quality gates: "
         f"min confidence {settings.min_confidence:.0%}, "
