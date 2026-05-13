@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: cmmtrader
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run coach_miranda_miner/dashboard.py --server.address 0.0.0.0 --server.port $PORT --server.headless true
+    envVars:
+      - key: DATA_MODE
+        value: paprika
+      - key: ANALYZER_MODE
+        value: rule
+      - key: DISCOVERY_MODE
+        value: exchange
+      - key: TRADING_MODE
+        value: paper
+      - key: RENDER_CHARTS
+        value: false
+
