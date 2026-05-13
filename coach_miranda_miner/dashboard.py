@@ -30,7 +30,7 @@ except ImportError:
 
 DATA_MODES = {
     "Updating prices: CoinPaprika": "paprika",
-    "Direct exchange APIs: Binance/Bybit/OKX": "live",
+    "Direct exchange APIs: Binance/Bybit/OKX (may be region-blocked)": "live",
     "CoinGecko free API": "coingecko",
     "Yahoo free API": "yahoo",
     "Offline demo": "fixture",
@@ -96,6 +96,11 @@ def render_scan(coach: CoachMirandaMiner) -> None:
     except Exception as exc:
         st.error("Live data is not available from this source right now.")
         st.code(str(exc))
+        if coach.settings.data_mode == "live":
+            st.info(
+                "Binance/Bybit/OKX can block Render regions. "
+                "Use the CoinPaprika source for hosted free prices."
+            )
         return
 
     st.subheader("Market Regime")

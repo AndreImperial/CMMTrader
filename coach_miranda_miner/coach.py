@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ccxt import NetworkError
+from ccxt import BaseError as CcxtError
 import requests
 
 from .alerts import AlertFormatter
@@ -174,12 +174,12 @@ class CoachMirandaMiner:
         try:
             market_regime = self.gatekeeper.market_regime()
             candidates = self.discovery.discover(self.settings.discovery_limit)
-        except (NetworkError, requests.RequestException, ValueError) as exc:
+        except (CcxtError, requests.RequestException, ValueError) as exc:
             return [
                 "Live data is not available right now.",
                 f"Data mode: {self.settings.data_mode}",
                 f"Reason: {exc}",
-                "Try again in a few minutes, or use DATA_MODE=fixture for offline demo mode.",
+                "Try DATA_MODE=paprika for hosted free prices, or DATA_MODE=fixture for offline demo mode.",
             ]
         messages: list[str] = []
 
@@ -245,7 +245,7 @@ class CoachMirandaMiner:
         exchange_id, routed_symbol = route
         try:
             ticker = self.router.fetch_ticker(exchange_id, routed_symbol)
-        except (NetworkError, requests.RequestException, ValueError) as exc:
+        except (CcxtError, requests.RequestException, ValueError) as exc:
             return (
                 f"Could not fetch live price for {routed_symbol} using "
                 f"{self.settings.data_mode}: {exc}"
@@ -275,7 +275,7 @@ class CoachMirandaMiner:
         if self.settings.data_mode == "fixture":
             lines.append("Warning: fixture mode uses demo prices; numbers will not update like live markets.")
         if self.settings.data_mode == "live":
-            lines.append("Live public exchange data requires working internet/DNS.")
+            lines.append("Direct exchange mode can fail on hosted servers if the exchange blocks that region.")
         if self.settings.data_mode == "paprika":
             lines.append("Paprika mode uses live prices with local intraday candle scaffolding.")
         if self.settings.analyzer_mode == "openai":

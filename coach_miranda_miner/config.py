@@ -54,7 +54,7 @@ class Settings:
         load_dotenv()
         return cls(
             trading_mode=os.getenv("TRADING_MODE", "paper").lower(),
-            data_mode=os.getenv("DATA_MODE", "fixture").lower(),
+            data_mode=os.getenv("DATA_MODE", "paprika").lower(),
             analyzer_mode=os.getenv("ANALYZER_MODE", "rule").lower(),
             discovery_mode=os.getenv("DISCOVERY_MODE", "exchange").lower(),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
