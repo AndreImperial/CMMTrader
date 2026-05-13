@@ -29,6 +29,7 @@ except ImportError:
 
 
 DATA_MODES = {
+    "Real candles: Coinbase public API": "coinbase",
     "Updating prices: CoinPaprika": "paprika",
     "Direct exchange APIs: Binance/Bybit/OKX (may be region-blocked)": "live",
     "CoinGecko free API": "coingecko",

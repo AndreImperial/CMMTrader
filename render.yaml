@@ -7,7 +7,9 @@ services:
     startCommand: streamlit run app.py --server.address 0.0.0.0 --server.port $PORT --server.headless true
     envVars:
       - key: DATA_MODE
-        value: paprika
+        value: coinbase
+      - key: QUOTE_CURRENCY
+        value: USD
       - key: ANALYZER_MODE
         value: rule
       - key: DISCOVERY_MODE

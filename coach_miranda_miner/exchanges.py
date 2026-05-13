@@ -90,6 +90,8 @@ class ExchangeRouter:
             return f"https://www.bybit.com/trade/usdt/{compact}"
         if exchange_id == "okx":
             return f"https://www.okx.com/trade-spot/{quote(symbol.replace('/', '-'))}"
+        if exchange_id == "coinbase":
+            return f"https://www.coinbase.com/advanced-trade/spot/{symbol.replace('/', '-')}"
         return None
 
 
@@ -356,6 +358,19 @@ PAPRIKA_IDS = {
     "DOT": "dot-polkadot",
 }
 
+COINBASE_PRODUCTS = {
+    "BTC": "BTC-USD",
+    "ETH": "ETH-USD",
+    "SOL": "SOL-USD",
+    "BNB": "BNB-USD",
+    "XRP": "XRP-USD",
+    "DOGE": "DOGE-USD",
+    "ADA": "ADA-USD",
+    "AVAX": "AVAX-USD",
+    "LINK": "LINK-USD",
+    "DOT": "DOT-USD",
+}
+
 
 class YahooFinanceRouter:
     """Free updating crypto data from Yahoo Finance chart endpoints."""
@@ -565,3 +580,97 @@ def _synthetic_candles_from_price(
             }
         )
     return pd.DataFrame(rows)
+
+
+class CoinbaseRouter:
+    """Free public Coinbase Exchange OHLCV candles, no API key required."""
+
+    def __init__(self, exchange_ids: list[str]) -> None:
+        self.exchange_ids = exchange_ids
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": "CMMTrader"})
+        self.base_url = "https://api.exchange.coinbase.com"
+        self._ticker_cache: dict[str, TickerSnapshot] = {}
+
+    def fetch_ticker(self, exchange_id: str, symbol: str) -> TickerSnapshot:
+        if symbol in self._ticker_cache:
+            return self._ticker_cache[symbol]
+        product = _coinbase_product(symbol.split("/")[0])
+        ticker_response = self.session.get(
+            f"{self.base_url}/products/{product}/ticker",
+            timeout=30,
+        )
+        ticker_response.raise_for_status()
+        stats_response = self.session.get(
+            f"{self.base_url}/products/{product}/stats",
+            timeout=30,
+        )
+        stats_response.raise_for_status()
+        ticker_payload = ticker_response.json()
+        stats_payload = stats_response.json()
+        last = float(ticker_payload["price"])
+        open_price = float(stats_payload.get("open") or last)
+        change = ((last - open_price) / open_price) * 100 if open_price else 0.0
+        base_volume = float(stats_payload.get("volume") or 0.0)
+        ticker = TickerSnapshot(
+            symbol=symbol,
+            last=last,
+            percentage=change,
+            quote_volume=base_volume * last,
+        )
+        self._ticker_cache[symbol] = ticker
+        return ticker
+
+    def fetch_tickers(self, exchange_id: str) -> list[TickerSnapshot]:
+        snapshots = []
+        for base in COINBASE_PRODUCTS:
+            symbol = f"{base}/USD"
+            try:
+                snapshots.append(self.fetch_ticker(exchange_id, symbol))
+            except Exception:
+                continue
+        return snapshots
+
+    def fetch_candles(
+        self,
+        exchange_id: str,
+        symbol: str,
+        timeframe: str,
+        limit: int,
+    ) -> pd.DataFrame:
+        product = _coinbase_product(symbol.split("/")[0])
+        response = self.session.get(
+            f"{self.base_url}/products/{product}/candles",
+            params={"granularity": _coinbase_granularity(timeframe)},
+            timeout=30,
+        )
+        response.raise_for_status()
+        rows = response.json()
+        frame = pd.DataFrame(
+            rows,
+            columns=["timestamp", "low", "high", "open", "close", "volume"],
+        )
+        frame["timestamp"] = pd.to_datetime(frame["timestamp"], unit="s", utc=True)
+        frame = frame.sort_values("timestamp")
+        return frame[["timestamp", "open", "high", "low", "close", "volume"]].tail(limit).reset_index(drop=True)
+
+    def first_available_route(self, base: str, quote_currency: str) -> tuple[str, str] | None:
+        if base.upper() not in COINBASE_PRODUCTS:
+            return None
+        return "coinbase", f"{base.upper()}/USD"
+
+
+def _coinbase_product(base: str) -> str:
+    product = COINBASE_PRODUCTS.get(base.upper())
+    if product is None:
+        raise ValueError(f"No Coinbase product configured for {base}.")
+    return product
+
+
+def _coinbase_granularity(timeframe: str) -> int:
+    return {
+        "15m": 900,
+        "1h": 3600,
+        "4h": 21600,
+        "1d": 86400,
+    }.get(timeframe, 3600)

@@ -86,7 +86,7 @@ DATA_MODE=live
 The default free updating mode is:
 
 ```text
-DATA_MODE=paprika
+DATA_MODE=coinbase
 DISCOVERY_MODE=exchange
 ANALYZER_MODE=rule
 ```
@@ -97,10 +97,11 @@ If exchange domains work on your machine, you can also try direct exchange data:
 DATA_MODE=live
 ```
 
-`paprika` mode uses updated free CoinPaprika prices and local intraday candle
-scaffolding. If you want to try other free public sources:
+`coinbase` mode uses real public OHLCV candles without API keys. If Coinbase is
+unavailable, you can try other free public sources:
 
 ```text
+DATA_MODE=paprika
 DATA_MODE=yahoo
 DATA_MODE=coingecko
 ```

@@ -14,6 +14,7 @@ from .discovery import DEFAULT_MAJORS, DiscoveryEngine, ExchangeMomentumDiscover
 from .exchanges import (
     CoinGeckoRouter,
     CoinPaprikaRouter,
+    CoinbaseRouter,
     ExchangeRouter,
     FixtureExchangeRouter,
     YahooFinanceRouter,
@@ -55,6 +56,8 @@ class CoachMirandaMiner:
             if settings.data_mode == "yahoo"
             else CoinPaprikaRouter(settings.exchange_ids)
             if settings.data_mode == "paprika"
+            else CoinbaseRouter(settings.exchange_ids)
+            if settings.data_mode == "coinbase"
             else ExchangeRouter(settings.exchange_ids)
         )
         self.discovery = self._build_discovery()
@@ -278,6 +281,8 @@ class CoachMirandaMiner:
             lines.append("Direct exchange mode can fail on hosted servers if the exchange blocks that region.")
         if self.settings.data_mode == "paprika":
             lines.append("Paprika mode uses live prices with local intraday candle scaffolding.")
+        if self.settings.data_mode == "coinbase":
+            lines.append("Coinbase mode uses real public OHLCV candles without API keys.")
         if self.settings.analyzer_mode == "openai":
             lines.append("OpenAI analyzer is optional and requires OPENAI_API_KEY.")
         return "\n".join(lines)
