@@ -31,7 +31,7 @@ class DiscoveryEngine:
     ) -> None:
         self.router = router
         self.quote_currency = quote_currency
-        self.majors = majors or DEFAULT_MAJORS
+        self.majors = DEFAULT_MAJORS if majors is None else majors
         self.market_cap_provider = market_cap_provider or StaticMarketCapProvider(self.majors)
         self.discovery_pool_limit = discovery_pool_limit
         self.min_market_cap_usd = min_market_cap_usd
@@ -82,7 +82,7 @@ class ExchangeMomentumDiscoveryEngine:
         self.exchange_ids = exchange_ids
         self.quote_currency = quote_currency
         self.min_volume_24h_usd = min_volume_24h_usd
-        self.majors = majors or DEFAULT_MAJORS
+        self.majors = DEFAULT_MAJORS if majors is None else majors
 
     def discover(self, limit: int) -> list[Candidate]:
         seen: set[str] = set()
@@ -98,23 +98,30 @@ class ExchangeMomentumDiscoveryEngine:
             candidates.append(self._candidate(route_symbol, exchange_id, ticker, "Free major route."))
 
         movers = []
+        mover_symbols: set[str] = set()
         for exchange_id in self.exchange_ids:
             for ticker in self.router.fetch_tickers(exchange_id):
-                if ticker.symbol in seen:
+                if ticker.symbol in seen or ticker.symbol in mover_symbols:
                     continue
                 if not ticker.symbol.endswith(f"/{self.quote_currency}"):
                     continue
                 if ticker.quote_volume is None or ticker.quote_volume < self.min_volume_24h_usd:
                     continue
-                movers.append((abs(ticker.percentage or 0.0), exchange_id, ticker))
+                mover_symbols.add(ticker.symbol)
+                movers.append((abs(ticker.percentage or 0.0), ticker))
 
-        for _, exchange_id, ticker in sorted(movers, reverse=True):
+        for _, ticker in sorted(movers, key=lambda item: item[0], reverse=True):
             if len(candidates) >= limit:
                 break
+            base = ticker.symbol.split("/")[0]
+            route = self.router.first_available_route(base, self.quote_currency)
+            if route is None:
+                continue
+            exchange_id, route_symbol = route
             seen.add(ticker.symbol)
             candidates.append(
                 self._candidate(
-                    ticker.symbol,
+                    route_symbol,
                     exchange_id,
                     ticker,
                     "Free exchange mover selected by 24h change and volume.",

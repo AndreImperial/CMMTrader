@@ -593,11 +593,12 @@ class CoinbaseRouter:
         self.base_url = "https://api.exchange.coinbase.com"
         self._ticker_cache: dict[str, TickerSnapshot] = {}
         self._candle_cache: dict[tuple[str, str, int], pd.DataFrame] = {}
+        self._product_cache: dict[str, str] | None = None
 
     def fetch_ticker(self, exchange_id: str, symbol: str) -> TickerSnapshot:
         if symbol in self._ticker_cache:
             return self._ticker_cache[symbol]
-        product = _coinbase_product(symbol.split("/")[0])
+        product = self._coinbase_product(symbol.split("/")[0])
         ticker_response = _get_with_retry(
             self.session,
             f"{self.base_url}/products/{product}/ticker",
@@ -623,13 +624,17 @@ class CoinbaseRouter:
 
     def fetch_tickers(self, exchange_id: str) -> list[TickerSnapshot]:
         snapshots = []
-        for base in COINBASE_PRODUCTS:
+        for base in self._coinbase_products():
             symbol = f"{base}/USD"
             try:
                 snapshots.append(self.fetch_ticker(exchange_id, symbol))
             except Exception:
                 continue
-        return snapshots
+        return sorted(
+            snapshots,
+            key=lambda item: item.quote_volume or 0.0,
+            reverse=True,
+        )
 
     def fetch_candles(
         self,
@@ -642,7 +647,7 @@ class CoinbaseRouter:
         if cache_key in self._candle_cache:
             return self._candle_cache[cache_key].copy()
 
-        product = _coinbase_product(symbol.split("/")[0])
+        product = self._coinbase_product(symbol.split("/")[0])
         response = _get_with_retry(
             self.session,
             f"{self.base_url}/products/{product}/candles",
@@ -660,9 +665,40 @@ class CoinbaseRouter:
         return candles.copy()
 
     def first_available_route(self, base: str, quote_currency: str) -> tuple[str, str] | None:
-        if base.upper() not in COINBASE_PRODUCTS:
+        if quote_currency.upper() != "USD":
+            return None
+        if base.upper() not in self._coinbase_products():
             return None
         return "coinbase", f"{base.upper()}/USD"
+
+    def _coinbase_product(self, base: str) -> str:
+        products = self._coinbase_products()
+        product = products.get(base.upper())
+        if product is None:
+            raise ValueError(f"No Coinbase product configured for {base}.")
+        return product
+
+    def _coinbase_products(self) -> dict[str, str]:
+        if self._product_cache is not None:
+            return self._product_cache
+
+        products = dict(COINBASE_PRODUCTS)
+        try:
+            response = _get_with_retry(self.session, f"{self.base_url}/products")
+            for item in response.json():
+                base = str(item.get("base_currency") or "").upper()
+                quote = str(item.get("quote_currency") or "").upper()
+                product_id = item.get("id")
+                if not base or quote != "USD" or not product_id:
+                    continue
+                if item.get("trading_disabled") or item.get("status") != "online":
+                    continue
+                products[base] = str(product_id)
+        except requests.RequestException:
+            pass
+
+        self._product_cache = products
+        return products
 
 
 def _coinbase_product(base: str) -> str:

@@ -59,7 +59,7 @@ def main() -> None:
             list(DATA_MODES.keys()),
             index=_mode_index(base_settings.data_mode),
         )
-        discovery_limit = st.slider("Symbols to scan", 1, 10, base_settings.discovery_limit)
+        discovery_limit = st.slider("Symbols to scan", 1, 100, min(base_settings.discovery_limit, 100))
         candle_limit = st.slider("Candles per timeframe", 80, 300, base_settings.candle_limit)
         auto_refresh = st.checkbox("Auto refresh")
         refresh_seconds = st.selectbox("Refresh interval", [60, 180, 300, 900], index=1)
