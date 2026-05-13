@@ -8,6 +8,7 @@ import time
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -64,6 +65,7 @@ def main() -> None:
         run_scan = st.button("Scan Now", type="primary", use_container_width=True)
         show_history = st.checkbox("Show signal history", value=True)
         show_oi = st.checkbox("Show High OI + Volume", value=True)
+        use_tradingview = st.checkbox("Use TradingView charts", value=True)
 
         st.divider()
         st.write("Execution")
@@ -212,11 +214,21 @@ def render_scan(coach: CoachMirandaMiner) -> None:
                     else 0,
                     key=f"tf-{candidate.route_symbol}",
                 )
-                st.plotly_chart(
-                    _candlestick(pack, timeframe, thesis),
-                    use_container_width=True,
-                    key=f"chart-{candidate.route_symbol}-{timeframe}",
-                )
+                if use_tradingview:
+                    components.html(
+                        _tradingview_widget(candidate.route_symbol, timeframe),
+                        height=620,
+                    )
+                    st.caption(
+                        "TradingView tools are available inside the chart. "
+                        "Scanner levels are shown in the right panel."
+                    )
+                else:
+                    st.plotly_chart(
+                        _candlestick(pack, timeframe, thesis),
+                        use_container_width=True,
+                        key=f"chart-{candidate.route_symbol}-{timeframe}",
+                    )
             with right:
                 st.metric("Signal", thesis.signal.value.upper())
                 st.metric("Confidence", f"{thesis.confidence:.0%}")
@@ -252,6 +264,7 @@ def render_high_oi(coach: CoachMirandaMiner) -> None:
                 "symbol": row.symbol,
                 "source": row.source,
                 "open_interest_usd": row.open_interest_usd,
+                "oi_change_24h_pct": row.open_interest_change_24h_pct,
                 "volume_24h_usd": row.volume_24h_usd,
                 "score": row.score,
                 "price": row.price,
@@ -267,6 +280,7 @@ def render_high_oi(coach: CoachMirandaMiner) -> None:
         hide_index=True,
         column_config={
             "open_interest_usd": st.column_config.NumberColumn("OI USD", format="$%.0f"),
+            "oi_change_24h_pct": st.column_config.NumberColumn("OI 24h %", format="%.2f%%"),
             "volume_24h_usd": st.column_config.NumberColumn("24h Volume", format="$%.0f"),
             "score": st.column_config.NumberColumn("OI/Vol Score", format="%.0f"),
             "price": st.column_config.NumberColumn("Price", format="$%.4f"),
@@ -346,6 +360,47 @@ def _candlestick(pack: IntelligencePack, timeframe: str, thesis: TradeThesis) ->
         ),
     )
     return fig
+
+
+def _tradingview_widget(symbol: str, timeframe: str) -> str:
+    return f"""
+    <div class="tradingview-widget-container" style="height:600px;width:100%">
+      <div class="tradingview-widget-container__widget" style="height:calc(100% - 32px);width:100%"></div>
+      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+      {{
+        "autosize": true,
+        "symbol": "{_tradingview_symbol(symbol)}",
+        "interval": "{_tradingview_interval(timeframe)}",
+        "timezone": "Etc/UTC",
+        "theme": "dark",
+        "style": "1",
+        "locale": "en",
+        "enable_publishing": false,
+        "allow_symbol_change": true,
+        "withdateranges": true,
+        "hide_side_toolbar": false,
+        "details": true,
+        "hotlist": true,
+        "calendar": false,
+        "support_host": "https://www.tradingview.com"
+      }}
+      </script>
+    </div>
+    """
+
+
+def _tradingview_symbol(symbol: str) -> str:
+    base = symbol.split("/")[0].upper()
+    return f"COINBASE:{base}USD"
+
+
+def _tradingview_interval(timeframe: str) -> str:
+    return {
+        "15m": "15",
+        "1h": "60",
+        "4h": "240",
+        "1d": "D",
+    }.get(timeframe, "15")
 
 
 def _mode_index(mode: str) -> int:

@@ -15,6 +15,8 @@ class Settings:
     openai_model: str
     coinmarketcap_api_key: str | None
     cryptopanic_api_key: str | None
+    coinalyze_api_key: str | None
+    coinglass_api_key: str | None
     exchange_ids: list[str]
     exchange_id: str
     symbol: str
@@ -64,6 +66,8 @@ class Settings:
             openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
             coinmarketcap_api_key=_optional(os.getenv("COINMARKETCAP_API_KEY")),
             cryptopanic_api_key=_optional(os.getenv("CRYPTOPANIC_API_KEY")),
+            coinalyze_api_key=_optional(os.getenv("COINALYZE_API_KEY")),
+            coinglass_api_key=_optional(os.getenv("COINGLASS_API_KEY")),
             exchange_ids=_csv(os.getenv("EXCHANGE_IDS", "binance,bybit,okx")),
             exchange_id=os.getenv("EXCHANGE_ID", "binance"),
             symbol=os.getenv("SYMBOL", "BTC/USDT"),

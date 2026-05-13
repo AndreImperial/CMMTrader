@@ -106,7 +106,11 @@ class CoachMirandaMiner:
             settings.backtest_stop_atr_multiple,
             settings.backtest_target_r_multiple,
         )
-        self.oi_scanner = OpenInterestScanner(self.router, settings.oi_bases)
+        self.oi_scanner = OpenInterestScanner(
+            self.router,
+            settings.oi_bases,
+            settings.coinalyze_api_key,
+        )
 
     def _build_discovery(self):
         if self.settings.discovery_mode == "cmc" and self.settings.coinmarketcap_api_key:

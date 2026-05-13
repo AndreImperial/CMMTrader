@@ -156,6 +156,7 @@ TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
 TELEGRAM_MIN_SIGNAL=enter
 ALERT_COOLDOWN_MINUTES=180
+COINALYZE_API_KEY=your_optional_key_for_24h_oi_change
 ```
 
 ## Telegram Alerts
@@ -193,13 +194,25 @@ and trade manually.
 The dashboard includes a **High OI + Volume** section. It tries public
 derivatives open-interest endpoints first:
 
+- Coinalyze, if `COINALYZE_API_KEY` is configured
 - OKX swaps
 - Binance futures
 - Bybit linear futures
 
+Coinalyze is the preferred source for 24h OI change because its API exposes
+open-interest history. Without a Coinalyze key, the app falls back to exchange
+public endpoints or volume-only rows if hosted exchange access is blocked.
+
 If those endpoints are blocked by the host region, it falls back to Coinbase
 24h volume and clearly marks rows as volume-only. The section is designed as a
 watchlist, not a trade trigger by itself.
+
+## TradingView Charts
+
+The dashboard embeds TradingView's Advanced Chart widget by default, so you can
+use TradingView drawing and charting tools directly in each signal card. You can
+turn it off in the sidebar to use the built-in Plotly chart with scanner
+entry/stop/target overlays.
 
 ## Quality Controls
 

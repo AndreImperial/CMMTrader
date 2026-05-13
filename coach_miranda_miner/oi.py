@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -15,6 +15,7 @@ class OISnapshot:
     source: str
     open_interest: float | None
     open_interest_usd: float | None
+    open_interest_change_24h_pct: float | None
     volume_24h_usd: float | None
     price: float | None
     status: str
@@ -24,18 +25,29 @@ class OISnapshot:
     def score(self) -> float:
         oi = self.open_interest_usd or 0.0
         volume = self.volume_24h_usd or 0.0
-        return oi + (volume * 0.35)
+        change = abs(self.open_interest_change_24h_pct or 0.0)
+        return oi + (volume * 0.35) + (oi * min(change, 100.0) / 100)
 
 
 class OpenInterestScanner:
-    def __init__(self, price_router, bases: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        price_router,
+        bases: list[str] | None = None,
+        coinalyze_api_key: str | None = None,
+    ) -> None:
         self.price_router = price_router
         self.bases = bases or DEFAULT_OI_BASES
+        self.coinalyze_api_key = coinalyze_api_key
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "CMMTrader"})
 
     def scan(self) -> tuple[list[OISnapshot], list[str]]:
         warnings: list[str] = []
+        snapshots = self._scan_coinalyze(warnings)
+        if snapshots:
+            return self._merge_volume(snapshots), warnings
+
         snapshots = self._scan_okx(warnings)
         if snapshots:
             return self._merge_volume(snapshots), warnings
@@ -77,6 +89,7 @@ class OpenInterestScanner:
                     source="OKX",
                     open_interest=_float_or_none(item.get("oi")),
                     open_interest_usd=oi_usd,
+                    open_interest_change_24h_pct=None,
                     volume_24h_usd=None,
                     price=None,
                     status="OI live",
@@ -104,6 +117,7 @@ class OpenInterestScanner:
                         source="Binance Futures",
                         open_interest=oi,
                         open_interest_usd=oi * price if oi is not None and price is not None else None,
+                        open_interest_change_24h_pct=None,
                         volume_24h_usd=volume,
                         price=price,
                         status="OI live",
@@ -141,6 +155,7 @@ class OpenInterestScanner:
                         source="Bybit",
                         open_interest=oi,
                         open_interest_usd=oi * price if oi is not None and price is not None else None,
+                        open_interest_change_24h_pct=None,
                         volume_24h_usd=volume,
                         price=price,
                         status="OI live",
@@ -162,6 +177,7 @@ class OpenInterestScanner:
                     source=snapshot.source,
                     open_interest=snapshot.open_interest,
                     open_interest_usd=snapshot.open_interest_usd,
+                    open_interest_change_24h_pct=snapshot.open_interest_change_24h_pct,
                     volume_24h_usd=snapshot.volume_24h_usd or volume,
                     price=snapshot.price or price,
                     status=snapshot.status,
@@ -182,6 +198,7 @@ class OpenInterestScanner:
                     source="Coinbase",
                     open_interest=None,
                     open_interest_usd=None,
+                    open_interest_change_24h_pct=None,
                     volume_24h_usd=volume,
                     price=price,
                     status="Volume only; OI unavailable",
@@ -196,6 +213,93 @@ class OpenInterestScanner:
             return ticker.last, ticker.quote_volume
         except Exception:
             return None, None
+
+    def _scan_coinalyze(self, warnings: list[str]) -> list[OISnapshot]:
+        if not self.coinalyze_api_key:
+            warnings.append("Coinalyze API key not configured; 24h OI change unavailable.")
+            return []
+        try:
+            symbols = self._coinalyze_symbols()
+        except requests.RequestException as exc:
+            warnings.append(f"Coinalyze markets unavailable: {exc}")
+            return []
+
+        selected = [symbols[base] for base in self.bases if base in symbols]
+        if not selected:
+            warnings.append("Coinalyze returned no matching USDT perpetual symbols.")
+            return []
+
+        rows: list[OISnapshot] = []
+        now = int(datetime.now(timezone.utc).timestamp())
+        start = int((datetime.now(timezone.utc) - timedelta(hours=24)).timestamp())
+        for chunk in _chunks(selected, 20):
+            try:
+                response = self.session.get(
+                    "https://api.coinalyze.net/v1/open-interest-history",
+                    params={
+                        "api_key": self.coinalyze_api_key,
+                        "symbols": ",".join(chunk),
+                        "interval": "1hour",
+                        "from": start,
+                        "to": now,
+                        "convert_to_usd": "true",
+                    },
+                    timeout=30,
+                )
+                response.raise_for_status()
+            except requests.RequestException as exc:
+                warnings.append(f"Coinalyze OI history unavailable: {exc}")
+                continue
+
+            for item in response.json():
+                history = item.get("history") or []
+                if len(history) < 2:
+                    continue
+                first = _float_or_none(history[0].get("c"))
+                last = _float_or_none(history[-1].get("c"))
+                if first is None or last is None or first == 0:
+                    continue
+                base = _base_from_coinalyze_symbol(item.get("symbol", ""))
+                if base is None:
+                    continue
+                change = ((last - first) / first) * 100
+                rows.append(
+                    OISnapshot(
+                        symbol=f"{base}/USD",
+                        source="Coinalyze",
+                        open_interest=None,
+                        open_interest_usd=last,
+                        open_interest_change_24h_pct=change,
+                        volume_24h_usd=None,
+                        price=None,
+                        status="24h OI live",
+                        updated_at=_timestamp_seconds(history[-1].get("t")),
+                    )
+                )
+        return rows
+
+    def _coinalyze_symbols(self) -> dict[str, str]:
+        response = self.session.get(
+            "https://api.coinalyze.net/v1/future-markets",
+            params={"api_key": self.coinalyze_api_key},
+            timeout=30,
+        )
+        response.raise_for_status()
+        by_base: dict[str, str] = {}
+        for item in response.json():
+            base = item.get("base_asset")
+            quote = item.get("quote_asset")
+            symbol = item.get("symbol")
+            if not base or not quote or not symbol:
+                continue
+            if base not in self.bases or quote not in {"USDT", "USD"}:
+                continue
+            if "PERP" not in symbol:
+                continue
+            current = by_base.get(base)
+            if current is None or symbol.endswith(".A"):
+                by_base[base] = symbol
+        return by_base
 
 
 def _float_or_none(value) -> float | None:
@@ -213,3 +317,21 @@ def _timestamp_ms(value) -> datetime:
         return datetime.now(timezone.utc)
     return datetime.fromtimestamp(number / 1000, timezone.utc)
 
+
+def _timestamp_seconds(value) -> datetime:
+    number = _float_or_none(value)
+    if number is None:
+        return datetime.now(timezone.utc)
+    return datetime.fromtimestamp(number, timezone.utc)
+
+
+def _chunks(items: list[str], size: int):
+    for index in range(0, len(items), size):
+        yield items[index : index + size]
+
+
+def _base_from_coinalyze_symbol(symbol: str) -> str | None:
+    for base in DEFAULT_OI_BASES:
+        if symbol.startswith(base):
+            return base
+    return None

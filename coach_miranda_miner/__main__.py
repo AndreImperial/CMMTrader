@@ -51,10 +51,15 @@ def main() -> None:
             print(f"Warning: {warning}")
         for row in rows:
             oi = f"{row.open_interest_usd:,.0f}" if row.open_interest_usd is not None else "n/a"
+            oi_change = (
+                f"{row.open_interest_change_24h_pct:.2f}%"
+                if row.open_interest_change_24h_pct is not None
+                else "n/a"
+            )
             volume = f"{row.volume_24h_usd:,.0f}" if row.volume_24h_usd is not None else "n/a"
             print(
                 f"{row.symbol} | {row.source} | OI USD: {oi} | "
-                f"24h Volume: {volume} | {row.status}"
+                f"OI 24h: {oi_change} | 24h Volume: {volume} | {row.status}"
             )
     if args.command == "price":
         print(coach.price(args.symbol))
