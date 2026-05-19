@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 import math
 from threading import Lock
 import time
 
 from ccxt import BaseError as CcxtError
+import pandas as pd
 import requests
 
-from .alerts import AlertFormatter
+from .alerts import AlertFormatter, alert_grade, grade_rank, telegram_buttons
 from .analyzer import OpenAIVisionAnalyzer, RuleBasedAnalyzer
 from .backtest import (
     BacktestResult,
@@ -306,7 +308,7 @@ class CoachMirandaMiner:
         atr = next((item.atr for item in pack.indicators if item.timeframe == "15m"), None)
         validation = self.validator.validate(thesis, market_regime, atr)
         message = self.alerts.format(candidate, thesis, validation, score)
-        alert_sent = self.maybe_send_telegram_alert(candidate, thesis, validation, message)
+        alert_sent = self.maybe_send_telegram_alert(candidate, thesis, validation, message, score)
         return DeepScanResult(
             candidate=candidate,
             score=score,
@@ -342,6 +344,36 @@ class CoachMirandaMiner:
             oi_change_24h_pct=score.oi_change_24h_pct,
             relative_volume=score.relative_volume,
         )
+        self._record_outcome_seeds(result)
+
+    def _record_outcome_seeds(self, result: DeepScanResult) -> None:
+        if not hasattr(self.journal, "record_signal_outcome_seed"):
+            return
+        thesis = result.thesis
+        if thesis.signal not in {SignalState.WATCH, SignalState.ENTER}:
+            return
+        if thesis.direction == "none" or thesis.setup.value == "none":
+            return
+        if thesis.entry is None or thesis.stop_loss is None or not thesis.targets:
+            return
+        grade = alert_grade(thesis, result.validation, result.score)
+        target = thesis.targets[0]
+        for horizon in (1, 4, 24):
+            self.journal.record_signal_outcome_seed(
+                symbol=thesis.symbol,
+                exchange_id=result.candidate.exchange_id,
+                route_symbol=result.candidate.route_symbol,
+                setup=thesis.setup.value,
+                signal=thesis.signal.value,
+                direction=thesis.direction,
+                grade=grade,
+                entry=thesis.entry,
+                stop_loss=thesis.stop_loss,
+                target=target,
+                score=result.score.score,
+                confidence=thesis.confidence,
+                horizon_hours=horizon,
+            )
 
     def _coinalyze_rows_for_candidates(
         self,
@@ -500,12 +532,17 @@ class CoachMirandaMiner:
         thesis: TradeThesis,
         validation: ValidationResult,
         message: str,
+        score: SetupScore | None = None,
     ) -> bool:
         if not self.telegram.configured:
             return False
         if not self._signal_meets_alert_threshold(thesis.signal):
             return False
         if thesis.direction == "none" or thesis.setup.value == "none":
+            return False
+        grade = alert_grade(thesis, validation, score)
+        min_alert_grade = getattr(self.settings, "min_alert_grade", "B")
+        if grade_rank(grade) < grade_rank(min_alert_grade):
             return False
         if self.journal.alert_sent_recently(
             thesis.symbol,
@@ -520,7 +557,11 @@ class CoachMirandaMiner:
         if thesis.signal == SignalState.ENTER:
             prefix += "Manual review: entry conditions are confirmed by rules.\n\n"
         try:
-            sent = self.telegram.send(prefix + message)
+            buttons = telegram_buttons(candidate, getattr(self.settings, "dashboard_url", None))
+            try:
+                sent = self.telegram.send(prefix + message, buttons=buttons)
+            except TypeError:
+                sent = self.telegram.send(prefix + message)
         except requests.RequestException:
             return False
         if sent:
@@ -543,6 +584,37 @@ class CoachMirandaMiner:
     def scan_for_alerts(self) -> str:
         messages = self.scan()
         return "\n\n".join(messages)
+
+    def update_signal_outcomes(self, limit: int = 100) -> int:
+        updated = 0
+        for outcome in self.journal.pending_signal_outcomes(limit):
+            created_at = datetime.fromisoformat(outcome["created_at"])
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            deadline = created_at + timedelta(hours=int(outcome["horizon_hours"]))
+            if datetime.now(timezone.utc) < deadline:
+                continue
+            try:
+                candles = self.router.fetch_candles(
+                    outcome["exchange_id"],
+                    outcome["route_symbol"],
+                    "15m",
+                    max(80, int(outcome["horizon_hours"]) * 4 + 20),
+                )
+            except (CcxtError, requests.RequestException, ValueError, IndexError):
+                continue
+            resolved = _resolve_outcome(outcome, candles, created_at, deadline)
+            if resolved is None:
+                continue
+            status, return_pct, exit_reason = resolved
+            self.journal.update_signal_outcome(
+                outcome["id"],
+                status,
+                return_pct,
+                exit_reason,
+            )
+            updated += 1
+        return updated
 
     def high_oi_watchlist(
         self,
@@ -613,6 +685,44 @@ class CoachMirandaMiner:
             )
             return tester.run(route_symbol, route_timeframe, candles)
         return self.backtester.run(route_symbol, route_timeframe, candles)
+
+    def batch_backtest(
+        self,
+        limit: int | None = None,
+        timeframe: str = "15m",
+        strategy: str = "miranda",
+        side: str = "both",
+    ) -> list[dict]:
+        row_limit = limit or self.settings.backtest_limit
+        try:
+            candidates = self.discovery.discover(row_limit)
+        except (CcxtError, requests.RequestException, ValueError):
+            candidates = []
+        rows: list[dict] = []
+        for candidate in candidates[:row_limit]:
+            try:
+                result = self.backtest(candidate.route_symbol, timeframe, strategy, side)
+            except (CcxtError, requests.RequestException, ValueError, IndexError):
+                continue
+            rows.append(
+                {
+                    "symbol": result.symbol,
+                    "timeframe": result.timeframe,
+                    "trades": result.trades,
+                    "win_rate": result.win_rate,
+                    "return_pct": result.total_return_pct,
+                    "drawdown_pct": result.max_drawdown_pct,
+                    "profit_factor": result.profit_factor,
+                    "expectancy_pct": result.expectancy_pct,
+                    "long_trades": result.long_trades,
+                    "short_trades": result.short_trades,
+                }
+            )
+        return sorted(
+            rows,
+            key=lambda row: (row["expectancy_pct"], row["profit_factor"], row["trades"]),
+            reverse=True,
+        )
 
     def price(self, symbol: str | None = None) -> str:
         route_symbol = symbol or self.settings.symbol
@@ -710,3 +820,42 @@ def _setup_score(
 
 def _elapsed(started_at: float) -> float:
     return round(time.perf_counter() - started_at, 2)
+
+
+def _resolve_outcome(
+    outcome: dict,
+    candles: pd.DataFrame,
+    created_at: datetime,
+    deadline: datetime,
+) -> tuple[str, float, str] | None:
+    if candles.empty or "timestamp" not in candles:
+        return None
+    frame = candles.copy()
+    frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
+    window = frame[(frame["timestamp"] >= created_at) & (frame["timestamp"] <= deadline)]
+    if window.empty:
+        window = frame.tail(1)
+
+    entry = float(outcome["entry"])
+    stop = float(outcome["stop_loss"])
+    target = float(outcome["target"])
+    direction = outcome["direction"]
+
+    for row in window.itertuples(index=False):
+        high = float(row.high)
+        low = float(row.low)
+        if direction == "long":
+            if low <= stop:
+                return "stop", ((stop - entry) / entry) * 100, "stop"
+            if high >= target:
+                return "target", ((target - entry) / entry) * 100, "target"
+        if direction == "short":
+            if high >= stop:
+                return "stop", ((entry - stop) / entry) * 100, "stop"
+            if low <= target:
+                return "target", ((entry - target) / entry) * 100, "target"
+
+    close = float(window.iloc[-1]["close"])
+    if direction == "short":
+        return "time", ((entry - close) / entry) * 100, "time"
+    return "time", ((close - entry) / entry) * 100, "time"

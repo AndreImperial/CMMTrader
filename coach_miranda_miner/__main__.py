@@ -25,6 +25,11 @@ def build_parser() -> argparse.ArgumentParser:
     backtest.add_argument("--timeframe", default=None)
     backtest.add_argument("--strategy", choices=["miranda", "ma"], default="miranda")
     backtest.add_argument("--side", choices=["both", "long", "short"], default="both")
+    batch = subparsers.add_parser("backtest-batch", help="Backtest the current top universe")
+    batch.add_argument("--limit", type=int, default=None)
+    batch.add_argument("--timeframe", default="15m")
+    batch.add_argument("--strategy", choices=["miranda", "ma"], default="miranda")
+    batch.add_argument("--side", choices=["both", "long", "short"], default="both")
     return parser
 
 
@@ -45,6 +50,14 @@ def main() -> None:
             print(message)
     if args.command == "backtest":
         print(coach.backtest(args.symbol, args.timeframe, args.strategy, args.side).format())
+    if args.command == "backtest-batch":
+        rows = coach.batch_backtest(args.limit, args.timeframe, args.strategy, args.side)
+        for row in rows:
+            print(
+                f"{row['symbol']} | trades {row['trades']} | win {row['win_rate']:.1%} | "
+                f"return {row['return_pct']:.2f}% | expectancy {row['expectancy_pct']:.2f}% | "
+                f"PF {row['profit_factor']:.2f} | L/S {row['long_trades']}/{row['short_trades']}"
+            )
     if args.command == "doctor":
         print(coach.doctor())
     if args.command == "oi":

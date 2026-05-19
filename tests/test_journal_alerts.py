@@ -60,6 +60,37 @@ class JournalAlertTests(unittest.TestCase):
             self.assertEqual(rows[0]["count"], 2)
             self.assertEqual(rows[0]["avg_score"], 70.0)
 
+    def test_signal_outcome_seed_can_be_updated_and_summarized(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
+            db_path = Path(temp_dir) / "journal.sqlite3"
+            journal = Journal(str(db_path))
+            journal.record_signal_outcome_seed(
+                symbol="BTC/USD",
+                exchange_id="coinbase",
+                route_symbol="BTC/USD",
+                setup="tabo",
+                signal="enter",
+                direction="long",
+                grade="A",
+                entry=100.0,
+                stop_loss=98.0,
+                target=104.0,
+                score=80.0,
+                confidence=0.8,
+                horizon_hours=4,
+            )
+
+            pending = journal.pending_signal_outcomes()
+            self.assertEqual(len(pending), 1)
+
+            journal.update_signal_outcome(pending[0]["id"], "target", 4.0, "target")
+            rows = journal.recent_signal_outcomes()
+            summary = journal.outcome_summary()
+
+            self.assertEqual(rows[0]["status"], "target")
+            self.assertEqual(summary[0]["setup"], "tabo")
+            self.assertEqual(summary[0]["win_rate"], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

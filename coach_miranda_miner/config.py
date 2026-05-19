@@ -56,10 +56,13 @@ class Settings:
     backtest_slippage_bps: float
     backtest_stop_atr_multiple: float
     backtest_target_r_multiple: float
+    backtest_limit: int
     journal_db: str
     telegram_bot_token: str | None
     telegram_chat_id: str | None
     telegram_min_signal: str
+    min_alert_grade: str
+    dashboard_url: str | None
     alert_cooldown_minutes: int
 
     @classmethod
@@ -119,10 +122,13 @@ class Settings:
             backtest_slippage_bps=float(os.getenv("BACKTEST_SLIPPAGE_BPS", "5")),
             backtest_stop_atr_multiple=float(os.getenv("BACKTEST_STOP_ATR_MULTIPLE", "1.5")),
             backtest_target_r_multiple=float(os.getenv("BACKTEST_TARGET_R_MULTIPLE", "2")),
+            backtest_limit=int(os.getenv("BACKTEST_LIMIT", "25")),
             journal_db=os.getenv("JOURNAL_DB", "coach_miranda_miner.sqlite3"),
             telegram_bot_token=_optional(os.getenv("TELEGRAM_BOT_TOKEN")),
             telegram_chat_id=_optional(os.getenv("TELEGRAM_CHAT_ID")),
             telegram_min_signal=os.getenv("TELEGRAM_MIN_SIGNAL", "watch").lower(),
+            min_alert_grade=os.getenv("MIN_ALERT_GRADE", "B").upper(),
+            dashboard_url=_optional(os.getenv("DASHBOARD_URL")),
             alert_cooldown_minutes=int(os.getenv("ALERT_COOLDOWN_MINUTES", "180")),
         )
 

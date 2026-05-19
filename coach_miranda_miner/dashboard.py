@@ -15,10 +15,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 try:
+    from .alerts import alert_grade
     from .coach import CoachMirandaMiner
     from .config import Settings
     from .models import IntelligencePack, TradeThesis
 except ImportError:
+    from coach_miranda_miner.alerts import alert_grade
     from coach_miranda_miner.coach import CoachMirandaMiner
     from coach_miranda_miner.config import Settings
     from coach_miranda_miner.models import (
@@ -146,6 +148,7 @@ def main() -> None:
     with history_tab:
         if show_history:
             render_history(coach)
+            render_outcomes(coach)
             render_calibration(coach)
         else:
             st.info("Enable signal history in the sidebar.")
@@ -268,6 +271,7 @@ def render_deep_scan(results, use_tradingview: bool) -> None:
                 "entry": result.thesis.entry,
                 "stop": result.thesis.stop_loss,
                 "target_1": result.thesis.targets[0] if result.thesis.targets else None,
+                "grade": alert_grade(result.thesis, result.validation, result.score),
                 "approved": result.validation.approved,
                 "alert_sent": result.alert_sent,
             }
@@ -482,6 +486,44 @@ def render_calibration(coach: CoachMirandaMiner) -> None:
     )
 
 
+def render_outcomes(coach: CoachMirandaMiner) -> None:
+    st.subheader("Outcome Tracking")
+    if st.button("Update Due Outcomes"):
+        with st.spinner("Checking 15m candles for target/stop/time outcomes..."):
+            updated = coach.update_signal_outcomes()
+        st.success(f"Updated {updated} due outcome rows.")
+
+    summary = coach.journal.outcome_summary(500)
+    if summary:
+        st.dataframe(
+            pd.DataFrame(summary),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "win_rate": st.column_config.NumberColumn("Win Rate", format="%.1%%"),
+                "avg_return_pct": st.column_config.NumberColumn("Avg Return", format="%.2f%%"),
+            },
+        )
+
+    rows = coach.journal.recent_signal_outcomes(50)
+    if not rows:
+        st.caption("No tracked signal outcomes yet.")
+        return
+    st.dataframe(
+        pd.DataFrame(rows),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "entry": st.column_config.NumberColumn("Entry", format="%.6f"),
+            "stop_loss": st.column_config.NumberColumn("Stop", format="%.6f"),
+            "target": st.column_config.NumberColumn("Target", format="%.6f"),
+            "score": st.column_config.NumberColumn("Score", format="%.1f"),
+            "confidence": st.column_config.NumberColumn("Confidence", format="%.2f"),
+            "return_pct": st.column_config.NumberColumn("Return", format="%.2f%%"),
+        },
+    )
+
+
 def render_backtest(coach: CoachMirandaMiner) -> None:
     st.subheader("Strategy Backtest")
     cols = st.columns(4)
@@ -494,8 +536,36 @@ def render_backtest(coach: CoachMirandaMiner) -> None:
     with cols[3]:
         side = st.selectbox("Side", ["both", "long", "short"], index=0)
 
-    if not st.button("Run Backtest", type="primary"):
+    left_action, right_action = st.columns(2)
+    run_single = left_action.button("Run Backtest", type="primary", use_container_width=True)
+    run_batch = right_action.button("Run Batch Top Coins", use_container_width=True)
+    if not run_single and not run_batch:
         st.caption("Backtests use the configured data source and candle limit.")
+        return
+
+    if run_batch:
+        with st.spinner("Running batch backtests across the current universe..."):
+            rows = coach.batch_backtest(
+                limit=coach.settings.backtest_limit,
+                timeframe=timeframe,
+                strategy=strategy,
+                side=side,
+            )
+        if not rows:
+            st.info("Batch backtest did not return any rows from the current data source.")
+            return
+        st.dataframe(
+            pd.DataFrame(rows),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "win_rate": st.column_config.NumberColumn("Win Rate", format="%.1%%"),
+                "return_pct": st.column_config.NumberColumn("Return", format="%.2f%%"),
+                "drawdown_pct": st.column_config.NumberColumn("Drawdown", format="%.2f%%"),
+                "profit_factor": st.column_config.NumberColumn("Profit Factor", format="%.2f"),
+                "expectancy_pct": st.column_config.NumberColumn("Expectancy", format="%.2f%%"),
+            },
+        )
         return
 
     with st.spinner("Running backtest..."):
@@ -656,6 +726,7 @@ def _scan_cache_key(settings: Settings) -> tuple:
         settings.min_volume_24h_usd,
         bool(settings.coinalyze_api_key),
         settings.telegram_min_signal,
+        getattr(settings, "min_alert_grade", "B"),
         settings.scan_workers,
         settings.prefilter_candle_limit,
     )

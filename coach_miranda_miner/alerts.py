@@ -15,7 +15,7 @@ class AlertFormatter:
         evidence = "\n".join(f"- {item}" for item in thesis.evidence) or "- n/a"
         status = "APPROVED" if validation.approved else "NOT APPROVED"
         reasons = "\n".join(f"- {item}" for item in validation.reasons) or "- Passed"
-        quality = _quality(thesis.confidence)
+        quality = alert_grade(thesis, validation, score)
         market = []
         if candidate.volume_24h_usd is not None:
             market.append(f"24h volume: {_usd(candidate.volume_24h_usd)}")
@@ -31,6 +31,8 @@ class AlertFormatter:
             signal_note = "Status: WATCH only - not confirmed entry.\n"
         if thesis.signal.value == "enter":
             signal_note = "Status: ENTER - rules confirm entry conditions.\n"
+        tv_link = tradingview_link(candidate.route_symbol)
+        trade_link = candidate.trading_link or "n/a"
         return (
             f"Coach Miranda Miner\n"
             f"Symbol: {candidate.route_symbol} on {candidate.exchange_id}\n"
@@ -42,10 +44,59 @@ class AlertFormatter:
             f"Entry: {_price(thesis.entry)} | Stop: {_price(thesis.stop_loss)} | "
             f"Targets: {targets}\n"
             f"Risk/Reward: {_ratio(thesis.risk_reward)}\n"
-            f"Link: {candidate.trading_link or 'n/a'}\n\n"
+            f"TradingView: {tv_link}\n"
+            f"Trade Link: {trade_link}\n\n"
             f"Evidence:\n{evidence}\n\n"
             f"Validation:\n{reasons}"
         )
+
+
+def alert_grade(
+    thesis: TradeThesis,
+    validation: ValidationResult,
+    score: SetupScore | None = None,
+) -> str:
+    if thesis.direction == "none" or thesis.setup.value == "none":
+        return "D"
+    rank_score = score.score if score is not None else thesis.confidence * 100
+    relative_volume = score.relative_volume if score is not None else None
+    strong_volume = relative_volume is not None and relative_volume >= 1.5
+    enter = thesis.signal.value == "enter"
+    watch_or_enter = thesis.signal.value in {"watch", "enter"}
+
+    if (
+        validation.approved
+        and enter
+        and thesis.confidence >= 0.78
+        and rank_score >= 75
+        and strong_volume
+    ):
+        return "A+"
+    if watch_or_enter and (validation.approved or enter) and thesis.confidence >= 0.72 and rank_score >= 65:
+        return "A"
+    if watch_or_enter and thesis.confidence >= 0.65 and rank_score >= 45:
+        return "B"
+    if thesis.confidence >= 0.55:
+        return "C"
+    return "D"
+
+
+def grade_rank(grade: str) -> int:
+    return {"A+": 4, "A": 3, "B": 2, "C": 1, "D": 0}.get(grade.upper(), 0)
+
+
+def tradingview_link(symbol: str) -> str:
+    base = symbol.split("/")[0].upper()
+    return f"https://www.tradingview.com/chart/?symbol=COINBASE%3A{base}USD"
+
+
+def telegram_buttons(candidate: Candidate, dashboard_url: str | None = None) -> list[dict[str, str]]:
+    buttons = [{"text": "TradingView", "url": tradingview_link(candidate.route_symbol)}]
+    if candidate.trading_link:
+        buttons.append({"text": "Trading Page", "url": candidate.trading_link})
+    if dashboard_url:
+        buttons.append({"text": "Dashboard", "url": dashboard_url})
+    return buttons
 
 
 def _quality(confidence: float) -> str:

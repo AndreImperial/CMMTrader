@@ -21,6 +21,9 @@ class SettingsTests(unittest.TestCase):
             "AUTO_SCAN_INTERVAL_SECONDS",
             "SCAN_INTERVAL_SECONDS",
             "TELEGRAM_MIN_SIGNAL",
+            "MIN_ALERT_GRADE",
+            "BACKTEST_LIMIT",
+            "DASHBOARD_URL",
         ]:
             os.environ.pop(name, None)
         os.environ["DISCOVERY_LIMIT"] = "100"
@@ -39,6 +42,9 @@ class SettingsTests(unittest.TestCase):
             "AUTO_SCAN_INTERVAL_SECONDS",
             "SCAN_INTERVAL_SECONDS",
             "TELEGRAM_MIN_SIGNAL",
+            "MIN_ALERT_GRADE",
+            "BACKTEST_LIMIT",
+            "DASHBOARD_URL",
         ]:
             os.environ.pop(name, None)
 
@@ -63,6 +69,8 @@ class SettingsTests(unittest.TestCase):
         self.assertTrue(settings.auto_scan_enabled)
         self.assertEqual(settings.auto_scan_interval_seconds, settings.scan_interval_seconds)
         self.assertEqual(settings.telegram_min_signal, "watch")
+        self.assertEqual(settings.min_alert_grade, "B")
+        self.assertEqual(settings.backtest_limit, 25)
 
 
 if __name__ == "__main__":

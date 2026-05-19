@@ -89,6 +89,31 @@ class Journal:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS signal_outcomes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    exchange_id TEXT NOT NULL,
+                    route_symbol TEXT NOT NULL,
+                    setup TEXT NOT NULL,
+                    signal TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    grade TEXT NOT NULL,
+                    horizon_hours INTEGER NOT NULL,
+                    entry REAL NOT NULL,
+                    stop_loss REAL NOT NULL,
+                    target REAL NOT NULL,
+                    score REAL,
+                    confidence REAL NOT NULL,
+                    status TEXT NOT NULL,
+                    return_pct REAL,
+                    exit_reason TEXT
+                )
+                """
+            )
 
     def record_decision(
         self,
@@ -244,6 +269,179 @@ class Journal:
                     message,
                 ),
             )
+
+    def record_signal_outcome_seed(
+        self,
+        symbol: str,
+        exchange_id: str,
+        route_symbol: str,
+        setup: str,
+        signal: str,
+        direction: str,
+        grade: str,
+        entry: float,
+        stop_loss: float,
+        target: float,
+        score: float | None,
+        confidence: float,
+        horizon_hours: int,
+    ) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO signal_outcomes (
+                    created_at, updated_at, symbol, exchange_id, route_symbol, setup,
+                    signal, direction, grade, horizon_hours, entry, stop_loss, target,
+                    score, confidence, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    now,
+                    now,
+                    symbol,
+                    exchange_id,
+                    route_symbol,
+                    setup,
+                    signal,
+                    direction,
+                    grade,
+                    horizon_hours,
+                    entry,
+                    stop_loss,
+                    target,
+                    score,
+                    confidence,
+                    "pending",
+                ),
+            )
+
+    def pending_signal_outcomes(self, limit: int = 100) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, created_at, symbol, exchange_id, route_symbol, setup,
+                       signal, direction, grade, horizon_hours, entry, stop_loss,
+                       target, score, confidence
+                FROM signal_outcomes
+                WHERE status = 'pending'
+                ORDER BY id ASC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "id": row[0],
+                "created_at": row[1],
+                "symbol": row[2],
+                "exchange_id": row[3],
+                "route_symbol": row[4],
+                "setup": row[5],
+                "signal": row[6],
+                "direction": row[7],
+                "grade": row[8],
+                "horizon_hours": row[9],
+                "entry": row[10],
+                "stop_loss": row[11],
+                "target": row[12],
+                "score": row[13],
+                "confidence": row[14],
+            }
+            for row in rows
+        ]
+
+    def update_signal_outcome(
+        self,
+        outcome_id: int,
+        status: str,
+        return_pct: float,
+        exit_reason: str,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE signal_outcomes
+                SET updated_at = ?, status = ?, return_pct = ?, exit_reason = ?
+                WHERE id = ?
+                """,
+                (
+                    datetime.now(timezone.utc).isoformat(),
+                    status,
+                    return_pct,
+                    exit_reason,
+                    outcome_id,
+                ),
+            )
+
+    def recent_signal_outcomes(self, limit: int = 50) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT created_at, updated_at, symbol, setup, signal, direction,
+                       grade, horizon_hours, entry, stop_loss, target, score,
+                       confidence, status, return_pct, exit_reason
+                FROM signal_outcomes
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "created_at": row[0],
+                "updated_at": row[1],
+                "symbol": row[2],
+                "setup": row[3],
+                "signal": row[4],
+                "direction": row[5],
+                "grade": row[6],
+                "horizon_hours": row[7],
+                "entry": row[8],
+                "stop_loss": row[9],
+                "target": row[10],
+                "score": row[11],
+                "confidence": row[12],
+                "status": row[13],
+                "return_pct": row[14],
+                "exit_reason": row[15],
+            }
+            for row in rows
+        ]
+
+    def outcome_summary(self, limit: int = 500) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT setup, signal, direction, grade, horizon_hours, COUNT(*),
+                       SUM(CASE WHEN return_pct > 0 THEN 1 ELSE 0 END),
+                       AVG(return_pct)
+                FROM (
+                    SELECT setup, signal, direction, grade, horizon_hours, return_pct
+                    FROM signal_outcomes
+                    WHERE status != 'pending' AND return_pct IS NOT NULL
+                    ORDER BY id DESC
+                    LIMIT ?
+                )
+                GROUP BY setup, signal, direction, grade, horizon_hours
+                ORDER BY AVG(return_pct) DESC
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "setup": row[0],
+                "signal": row[1],
+                "direction": row[2],
+                "grade": row[3],
+                "horizon_hours": row[4],
+                "count": row[5],
+                "wins": row[6],
+                "win_rate": (row[6] / row[5]) if row[5] else 0.0,
+                "avg_return_pct": row[7],
+            }
+            for row in rows
+        ]
 
     def record_setup_score(
         self,
