@@ -28,6 +28,9 @@ class Settings:
     discovery_pool_limit: int
     prefilter_limit: int
     deep_scan_limit: int
+    scan_workers: int
+    fetch_timeout_seconds: int
+    prefilter_candle_limit: int
     auto_scan_enabled: bool
     auto_scan_interval_seconds: int
     min_market_cap_usd: float
@@ -86,6 +89,9 @@ class Settings:
             discovery_pool_limit=int(os.getenv("DISCOVERY_POOL_LIMIT", "250")),
             prefilter_limit=int(os.getenv("PREFILTER_LIMIT", os.getenv("DISCOVERY_LIMIT", "100"))),
             deep_scan_limit=int(os.getenv("DEEP_SCAN_LIMIT", "20")),
+            scan_workers=int(os.getenv("SCAN_WORKERS", "8")),
+            fetch_timeout_seconds=int(os.getenv("FETCH_TIMEOUT_SECONDS", "20")),
+            prefilter_candle_limit=int(os.getenv("PREFILTER_CANDLE_LIMIT", "40")),
             auto_scan_enabled=_bool(os.getenv("AUTO_SCAN_ENABLED", "true")),
             auto_scan_interval_seconds=int(
                 os.getenv("AUTO_SCAN_INTERVAL_SECONDS", os.getenv("SCAN_INTERVAL_SECONDS", "900"))

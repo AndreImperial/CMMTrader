@@ -67,7 +67,38 @@ class ThesisValidatorTests(unittest.TestCase):
         result = self.validator.validate(thesis, self.regime, atr=2.0)
         self.assertTrue(result.approved)
 
+    def test_short_enter_requires_valid_short_geometry(self) -> None:
+        thesis = TradeThesis(
+            symbol="BTC/USDT",
+            setup=Setup.TABO,
+            signal=SignalState.ENTER,
+            direction="short",
+            confidence=0.75,
+            entry=100.0,
+            stop_loss=99.0,
+            targets=[101.0],
+            risk_reward=2.0,
+        )
+        result = self.validator.validate(thesis, self.regime, atr=2.0)
+        self.assertFalse(result.approved)
+        self.assertIn("Short stop loss must be above entry.", result.reasons)
+        self.assertIn("Short targets must be below entry.", result.reasons)
+
+    def test_short_enter_can_be_approved(self) -> None:
+        thesis = TradeThesis(
+            symbol="BTC/USDT",
+            setup=Setup.TABO,
+            signal=SignalState.ENTER,
+            direction="short",
+            confidence=0.75,
+            entry=100.0,
+            stop_loss=101.5,
+            targets=[97.0],
+            risk_reward=2.0,
+        )
+        result = self.validator.validate(thesis, self.regime, atr=2.0)
+        self.assertTrue(result.approved)
+
 
 if __name__ == "__main__":
     unittest.main()
-

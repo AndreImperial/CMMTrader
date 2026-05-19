@@ -127,3 +127,6 @@ class ScanSummary(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     coinalyze_enabled: bool = False
     market_regime: MarketRegime | None = None
+    duration_seconds: float | None = None
+    failed_symbols: int = 0
+    worker_count: int = 1

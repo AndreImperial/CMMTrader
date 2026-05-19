@@ -28,6 +28,9 @@ class ThesisValidator:
         if thesis.direction == "long" and not market_regime.longs_allowed:
             reasons.append(market_regime.reason)
 
+        if thesis.direction == "short" and not market_regime.shorts_allowed:
+            reasons.append("Market regime blocks short setup.")
+
         if thesis.confidence < self.min_confidence and thesis.signal == SignalState.ENTER:
             reasons.append(f"Confidence below minimum {self.min_confidence:.2f}.")
 
@@ -40,6 +43,20 @@ class ThesisValidator:
                     break
             if atr is not None and atr > 0:
                 stop_distance = thesis.entry - thesis.stop_loss
+                if stop_distance > atr * self.max_stop_atr_multiple:
+                    reasons.append(
+                        "Stop distance is too wide versus ATR "
+                        f"({stop_distance / atr:.2f}x)."
+                    )
+        if thesis.direction == "short" and thesis.entry is not None and thesis.stop_loss is not None:
+            if thesis.stop_loss <= thesis.entry:
+                reasons.append("Short stop loss must be above entry.")
+            for target in thesis.targets:
+                if target >= thesis.entry:
+                    reasons.append("Short targets must be below entry.")
+                    break
+            if atr is not None and atr > 0:
+                stop_distance = thesis.stop_loss - thesis.entry
                 if stop_distance > atr * self.max_stop_atr_multiple:
                     reasons.append(
                         "Stop distance is too wide versus ATR "

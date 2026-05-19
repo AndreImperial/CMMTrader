@@ -67,6 +67,7 @@ def main() -> None:
             index=_refresh_index(base_settings.auto_scan_interval_seconds),
         )
         run_scan = st.button("Scan Now", type="primary", use_container_width=True)
+        clear_cache = st.button("Clear Scan Cache", use_container_width=True)
         show_history = st.checkbox("Show signal history", value=True)
         show_oi = st.checkbox("Show High OI + Volume", value=True)
         use_tradingview = st.checkbox("Use TradingView charts", value=True)
@@ -109,22 +110,45 @@ def main() -> None:
     elif settings.data_mode == "fixture":
         st.warning("Offline demo mode uses synthetic candles.")
 
-    if run_scan or auto_refresh:
-        render_scan(
-            coach,
-            use_tradingview,
-            show_oi,
-            force_refresh=run_scan,
-            cache_seconds=refresh_seconds,
-        )
-    else:
-        st.info("Press Scan Now to look for setups.")
-        if show_oi:
-            render_high_oi(coach)
+    if clear_cache:
+        st.session_state.pop("scan_cache", None)
+        st.success("Scan cache cleared.")
 
-    if show_history:
-        render_history(coach)
-        render_calibration(coach)
+    scanner_tab, oi_tab, backtest_tab, history_tab = st.tabs(
+        ["Scanner", "High OI", "Backtest", "History"]
+    )
+    with scanner_tab:
+        if run_scan or auto_refresh:
+            render_scan(
+                coach,
+                use_tradingview,
+                show_oi=False,
+                force_refresh=run_scan,
+                cache_seconds=refresh_seconds,
+            )
+        else:
+            st.info("Press Scan Now to look for setups.")
+
+    with oi_tab:
+        if show_oi:
+            cached_payload = _cached_scan_payload()
+            if cached_payload is not None:
+                _, scores, _ = cached_payload
+                render_high_oi_from_scores(scores)
+            else:
+                render_high_oi(coach)
+        else:
+            st.info("Enable High OI + Volume in the sidebar.")
+
+    with backtest_tab:
+        render_backtest(coach)
+
+    with history_tab:
+        if show_history:
+            render_history(coach)
+            render_calibration(coach)
+        else:
+            st.info("Enable signal history in the sidebar.")
 
     if auto_refresh:
         time.sleep(refresh_seconds)
@@ -147,7 +171,8 @@ def render_scan(
     )
     if cache_is_valid and not force_refresh:
         summary, scores, results = cached["payload"]
-        st.caption("Using cached scan result. Press Scan Now to force a fresh scan.")
+        cache_age = int(time.time() - cached.get("saved_at", 0))
+        st.caption(f"Using cached scan result from {cache_age}s ago. Press Scan Now to force a fresh scan.")
     else:
         with st.spinner("Scanning top universe, ranking candidates, and deep-analyzing setups..."):
             summary, scores, results = coach.scan_setups()
@@ -157,11 +182,14 @@ def render_scan(
             "payload": (summary, scores, results),
         }
 
-    status_cols = st.columns(4)
+    status_cols = st.columns(6)
     status_cols[0].metric("Candidates Scanned", summary.candidates_scanned)
     status_cols[1].metric("Deep Analyzed", summary.deep_analyzed)
-    status_cols[2].metric("Last Scan", summary.created_at.strftime("%H:%M UTC"))
-    status_cols[3].metric("Coinalyze", "On" if summary.coinalyze_enabled else "Off")
+    status_cols[2].metric("Failed Symbols", summary.failed_symbols)
+    status_cols[3].metric("Duration", f"{summary.duration_seconds or 0:.1f}s")
+    status_cols[4].metric("Workers", summary.worker_count)
+    status_cols[5].metric("Coinalyze", "On" if summary.coinalyze_enabled else "Off")
+    st.caption(f"Last scan: {summary.created_at.strftime('%Y-%m-%d %H:%M UTC')}")
     if summary.market_regime is not None:
         st.subheader("Market Regime")
         st.write(summary.market_regime.reason)
@@ -179,7 +207,25 @@ def render_prefilter(scores) -> None:
     if not scores:
         st.info("No prefilter candidates available.")
         return
-    frame = pd.DataFrame(
+    frame = _score_frame(scores[:100])
+    st.dataframe(
+        frame.head(25),
+        use_container_width=True,
+        hide_index=True,
+        column_config=_score_column_config(),
+    )
+    if len(frame) > 25:
+        with st.expander("Show full top 100 prefilter"):
+            st.dataframe(
+                frame,
+                use_container_width=True,
+                hide_index=True,
+                column_config=_score_column_config(),
+            )
+
+
+def _score_frame(scores) -> pd.DataFrame:
+    return pd.DataFrame(
         [
             {
                 "rank": item.rank,
@@ -195,18 +241,16 @@ def render_prefilter(scores) -> None:
             for item in scores[:100]
         ]
     )
-    st.dataframe(
-        frame,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "volume_24h_usd": st.column_config.NumberColumn("24h Volume", format="$%.0f"),
-            "price_change_24h_pct": st.column_config.NumberColumn("24h %", format="%.2f%%"),
-            "oi_change_24h_pct": st.column_config.NumberColumn("OI 24h %", format="%.2f%%"),
-            "relative_volume": st.column_config.NumberColumn("15m Rel Vol", format="%.2fx"),
-            "score": st.column_config.NumberColumn("Score", format="%.1f"),
-        },
-    )
+
+
+def _score_column_config() -> dict:
+    return {
+        "volume_24h_usd": st.column_config.NumberColumn("24h Volume", format="$%.0f"),
+        "price_change_24h_pct": st.column_config.NumberColumn("24h %", format="%.2f%%"),
+        "oi_change_24h_pct": st.column_config.NumberColumn("OI 24h %", format="%.2f%%"),
+        "relative_volume": st.column_config.NumberColumn("15m Rel Vol", format="%.2fx"),
+        "score": st.column_config.NumberColumn("Score", format="%.1f"),
+    }
 
 
 def render_deep_scan(results, use_tradingview: bool) -> None:
@@ -321,6 +365,18 @@ def render_high_oi(coach: CoachMirandaMiner) -> None:
             for row in rows
         ]
     )
+    st.dataframe(
+        frame,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "open_interest_usd": st.column_config.NumberColumn("OI USD", format="$%.0f"),
+            "oi_change_24h_pct": st.column_config.NumberColumn("OI 24h %", format="%.2f%%"),
+            "volume_24h_usd": st.column_config.NumberColumn("24h Volume", format="$%.0f"),
+            "score": st.column_config.NumberColumn("OI/Vol Score", format="%.0f"),
+            "price": st.column_config.NumberColumn("Price", format="$%.4f"),
+        },
+    )
 
 
 def render_high_oi_from_scores(scores) -> None:
@@ -362,18 +418,6 @@ def render_high_oi_from_scores(scores) -> None:
             "volume_24h_usd": st.column_config.NumberColumn("24h Volume", format="$%.0f"),
             "relative_volume": st.column_config.NumberColumn("15m Rel Vol", format="%.2fx"),
             "score": st.column_config.NumberColumn("Score", format="%.1f"),
-        },
-    )
-    st.dataframe(
-        frame,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "open_interest_usd": st.column_config.NumberColumn("OI USD", format="$%.0f"),
-            "oi_change_24h_pct": st.column_config.NumberColumn("OI 24h %", format="%.2f%%"),
-            "volume_24h_usd": st.column_config.NumberColumn("24h Volume", format="$%.0f"),
-            "score": st.column_config.NumberColumn("OI/Vol Score", format="%.0f"),
-            "price": st.column_config.NumberColumn("Price", format="$%.4f"),
         },
     )
 
@@ -436,6 +480,43 @@ def render_calibration(coach: CoachMirandaMiner) -> None:
             "avg_oi_change_24h_pct": st.column_config.NumberColumn("Avg OI 24h %", format="%.2f%%"),
         },
     )
+
+
+def render_backtest(coach: CoachMirandaMiner) -> None:
+    st.subheader("Strategy Backtest")
+    cols = st.columns(4)
+    with cols[0]:
+        symbol = st.text_input("Symbol", value=coach.settings.symbol.replace("USDT", "USD"))
+    with cols[1]:
+        timeframe = st.selectbox("Timeframe", ["15m", "1h", "4h", "1d"], index=0)
+    with cols[2]:
+        strategy = st.selectbox("Strategy", ["miranda", "ma"], index=0)
+    with cols[3]:
+        side = st.selectbox("Side", ["both", "long", "short"], index=0)
+
+    if not st.button("Run Backtest", type="primary"):
+        st.caption("Backtests use the configured data source and candle limit.")
+        return
+
+    with st.spinner("Running backtest..."):
+        try:
+            result = coach.backtest(symbol, timeframe, strategy, side)
+        except Exception as exc:
+            st.error("Backtest failed.")
+            st.code(str(exc))
+            return
+
+    metrics = st.columns(6)
+    metrics[0].metric("Trades", result.trades)
+    metrics[1].metric("Win Rate", f"{result.win_rate:.1%}")
+    metrics[2].metric("Return", f"{result.total_return_pct:.2f}%")
+    metrics[3].metric("Drawdown", f"{result.max_drawdown_pct:.2f}%")
+    metrics[4].metric("Profit Factor", f"{result.profit_factor:.2f}")
+    metrics[5].metric("Expectancy", f"{result.expectancy_pct:.2f}%")
+    st.write(f"Longs: {result.long_trades} | Shorts: {result.short_trades}")
+    if result.sample_trades:
+        st.dataframe(pd.DataFrame(result.sample_trades), use_container_width=True, hide_index=True)
+    st.code(result.format())
 
 
 def _candlestick(pack: IntelligencePack, timeframe: str, thesis: TradeThesis) -> go.Figure:
@@ -575,7 +656,16 @@ def _scan_cache_key(settings: Settings) -> tuple:
         settings.min_volume_24h_usd,
         bool(settings.coinalyze_api_key),
         settings.telegram_min_signal,
+        settings.scan_workers,
+        settings.prefilter_candle_limit,
     )
+
+
+def _cached_scan_payload():
+    cached = st.session_state.get("scan_cache")
+    if cached is None:
+        return None
+    return cached.get("payload")
 
 
 def _fmt(value: float | None) -> str:

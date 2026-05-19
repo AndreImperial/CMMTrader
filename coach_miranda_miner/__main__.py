@@ -20,9 +20,11 @@ def build_parser() -> argparse.ArgumentParser:
     alerts.add_argument("--interval", type=int, default=None)
     loop = subparsers.add_parser("loop", help="Run scans forever on a fixed interval")
     loop.add_argument("--interval", type=int, default=None)
-    backtest = subparsers.add_parser("backtest", help="Run a simple MA/RSI backtest")
+    backtest = subparsers.add_parser("backtest", help="Run a strategy backtest")
     backtest.add_argument("--symbol", default=None)
     backtest.add_argument("--timeframe", default=None)
+    backtest.add_argument("--strategy", choices=["miranda", "ma"], default="miranda")
+    backtest.add_argument("--side", choices=["both", "long", "short"], default="both")
     return parser
 
 
@@ -42,7 +44,7 @@ def main() -> None:
                 print("\n" + ("-" * 72) + "\n")
             print(message)
     if args.command == "backtest":
-        print(coach.backtest(args.symbol, args.timeframe).format())
+        print(coach.backtest(args.symbol, args.timeframe, args.strategy, args.side).format())
     if args.command == "doctor":
         print(coach.doctor())
     if args.command == "oi":

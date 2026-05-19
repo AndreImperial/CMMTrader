@@ -26,6 +26,12 @@ services:
         value: "100"
       - key: DEEP_SCAN_LIMIT
         value: "20"
+      - key: SCAN_WORKERS
+        value: "8"
+      - key: FETCH_TIMEOUT_SECONDS
+        value: "20"
+      - key: PREFILTER_CANDLE_LIMIT
+        value: "40"
       - key: AUTO_SCAN_ENABLED
         value: "true"
       - key: AUTO_SCAN_INTERVAL_SECONDS

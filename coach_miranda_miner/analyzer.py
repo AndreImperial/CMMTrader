@@ -24,7 +24,7 @@ class RuleBasedAnalyzer(Analyzer):
         candles_15m = pack.candles.get("15m", [])
         candles_1h = pack.candles.get("1h", [])
 
-        if not pack.market_regime.longs_allowed:
+        if not pack.market_regime.longs_allowed and not pack.market_regime.shorts_allowed:
             return TradeThesis(
                 symbol=pack.candidate.route_symbol,
                 setup=Setup.NONE,
@@ -36,6 +36,7 @@ class RuleBasedAnalyzer(Analyzer):
             )
 
         prison = _prison_break_state(candles_15m)
+        short_prison = _short_prison_break_state(candles_15m)
         volume_confirmed = (tf_15m.relative_volume or 0.0) >= 1.25
         compression = _compression_ratio(candles_15m)
         support = _support_zone(candles_1h or candles_15m)
@@ -45,9 +46,15 @@ class RuleBasedAnalyzer(Analyzer):
             and tf_1h.macd_signal is not None
             and tf_1h.macd > tf_1h.macd_signal
         )
+        macd_bearish = (
+            tf_1h.macd is not None
+            and tf_1h.macd_signal is not None
+            and tf_1h.macd < tf_1h.macd_signal
+        )
         rsi_ok = tf_15m.rsi is not None and 35 <= tf_15m.rsi <= 68
+        short_rsi_ok = tf_15m.rsi is not None and 32 <= tf_15m.rsi <= 65
 
-        if _transition_play(tf_15m, tf_1h):
+        if pack.market_regime.longs_allowed and _transition_play(tf_15m, tf_1h):
             return _long_thesis(
                 pack,
                 Setup.TRANSITION_PLAY,
@@ -60,7 +67,23 @@ class RuleBasedAnalyzer(Analyzer):
                 ],
             )
 
-        if support and _is_bounce(candles_15m, support) and rsi_ok:
+        if (
+            pack.market_regime.shorts_allowed
+            and _short_transition_play(tf_15m, tf_1h)
+        ):
+            return _short_thesis(
+                pack,
+                Setup.TRANSITION_PLAY,
+                short_prison,
+                confidence=_confidence(0.58, short_prison, volume_confirmed, compression, macd_bearish),
+                evidence=[
+                    "RSI is rolling over from a strong zone.",
+                    "1h MACD momentum supports bearish reversal conditions.",
+                    f"15m short prison-break state is {short_prison.value}.",
+                ],
+            )
+
+        if pack.market_regime.longs_allowed and support and _is_bounce(candles_15m, support) and rsi_ok:
             return _long_thesis(
                 pack,
                 Setup.BOUNCE,
@@ -73,7 +96,29 @@ class RuleBasedAnalyzer(Analyzer):
                 ],
             )
 
-        if compression < 0.7 and prison in {SignalState.WATCH, SignalState.ENTER}:
+        if (
+            pack.market_regime.shorts_allowed
+            and resistance
+            and _is_resistance_rejection(candles_15m, resistance)
+            and short_rsi_ok
+        ):
+            return _short_thesis(
+                pack,
+                Setup.BOUNCE,
+                short_prison,
+                confidence=_confidence(0.58, short_prison, volume_confirmed, compression, macd_bearish),
+                evidence=[
+                    f"Resistance zone has {resistance['touches']} wick touches.",
+                    "Latest candles show rejection near resistance.",
+                    f"15m RSI is {tf_15m.rsi:.2f}.",
+                ],
+            )
+
+        if (
+            pack.market_regime.longs_allowed
+            and compression < 0.7
+            and prison in {SignalState.WATCH, SignalState.ENTER}
+        ):
             evidence = [
                 f"15m range compression ratio is {compression:.2f}.",
                 f"15m prison-break state is {prison.value}.",
@@ -91,7 +136,29 @@ class RuleBasedAnalyzer(Analyzer):
             )
 
         if (
-            rsi_ok
+            pack.market_regime.shorts_allowed
+            and compression < 0.7
+            and short_prison in {SignalState.WATCH, SignalState.ENTER}
+        ):
+            evidence = [
+                f"15m range compression ratio is {compression:.2f}.",
+                f"15m short prison-break state is {short_prison.value}.",
+            ]
+            if volume_confirmed:
+                evidence.append("Relative volume confirms bearish breakdown.")
+            else:
+                evidence.append("Volume confirmation is not strong enough for ENTER.")
+            return _short_thesis(
+                pack,
+                Setup.APEX_SQUEEZE,
+                short_prison if volume_confirmed else SignalState.WATCH,
+                confidence=_confidence(0.62, short_prison, volume_confirmed, compression, macd_bearish),
+                evidence=evidence,
+            )
+
+        if (
+            pack.market_regime.longs_allowed
+            and rsi_ok
             and macd_bullish
             and (tf_4h.rsi is None or tf_4h.rsi < 72)
             and resistance is not None
@@ -106,6 +173,26 @@ class RuleBasedAnalyzer(Analyzer):
                     "15m RSI is in a tradable continuation range.",
                     f"Nearby resistance zone has {resistance['touches']} wick touches.",
                     f"15m prison-break state is {prison.value}.",
+                ],
+            )
+
+        if (
+            pack.market_regime.shorts_allowed
+            and short_rsi_ok
+            and macd_bearish
+            and (tf_4h.rsi is None or tf_4h.rsi > 28)
+            and support is not None
+        ):
+            return _short_thesis(
+                pack,
+                Setup.TABO,
+                short_prison,
+                confidence=_confidence(0.56, short_prison, volume_confirmed, compression, macd_bearish),
+                evidence=[
+                    "1h MACD is below signal.",
+                    "15m RSI is in a tradable bearish continuation range.",
+                    f"Nearby support zone has {support['touches']} wick touches.",
+                    f"15m short prison-break state is {short_prison.value}.",
                 ],
             )
 
@@ -256,6 +343,40 @@ def _long_thesis(
     )
 
 
+def _short_thesis(
+    pack: IntelligencePack,
+    setup: Setup,
+    signal: SignalState,
+    confidence: float,
+    evidence: list[str],
+) -> TradeThesis:
+    tf_15m = {item.timeframe: item for item in pack.indicators}.get("15m") or pack.indicators[-1]
+    entry = tf_15m.close
+    stop_distance = tf_15m.atr or entry * 0.015
+    stop = entry + stop_distance
+    targets = [entry - (stop_distance * 1.5), entry - (stop_distance * 2.5)]
+    risk_reward = (entry - targets[-1]) / stop_distance if stop_distance > 0 else None
+    if signal == SignalState.WAIT:
+        evidence.append("Price remains inside consolidation; waiting avoids fake breakdowns.")
+    if signal == SignalState.WATCH:
+        evidence.append("Bearish break needs follow-through or retest confirmation before entry.")
+    if signal == SignalState.ENTER:
+        evidence.append("15m confirmation candle closed below the prison range.")
+    evidence.append(f"ATR stop distance is {stop_distance:.6g}.")
+    return TradeThesis(
+        symbol=pack.candidate.route_symbol,
+        setup=setup,
+        signal=signal,
+        direction="short",
+        confidence=confidence,
+        entry=entry,
+        stop_loss=stop,
+        targets=[target for target in targets if target > 0],
+        risk_reward=risk_reward,
+        evidence=evidence,
+    )
+
+
 def _prison_break_state(candles: list[CandleSnapshot]) -> SignalState:
     if len(candles) < 24:
         return SignalState.WAIT
@@ -273,6 +394,27 @@ def _prison_break_state(candles: list[CandleSnapshot]) -> SignalState:
     if last_close > high:
         return SignalState.ENTER if prev_close > high else SignalState.WATCH
     if last_close < low:
+        return SignalState.REJECT
+    return SignalState.WAIT
+
+
+def _short_prison_break_state(candles: list[CandleSnapshot]) -> SignalState:
+    if len(candles) < 24:
+        return SignalState.WAIT
+    prison = candles[-23:-3]
+    last_three = candles[-3:]
+    high = max(candle.high for candle in prison)
+    low = min(candle.low for candle in prison)
+    prev_close = last_three[-2].close
+    last_close = last_three[-1].close
+
+    if low <= last_close <= high:
+        if prev_close > high or prev_close < low:
+            return SignalState.REJECT
+        return SignalState.WAIT
+    if last_close < low:
+        return SignalState.ENTER if prev_close < low else SignalState.WATCH
+    if last_close > high:
         return SignalState.REJECT
     return SignalState.WAIT
 
@@ -326,10 +468,29 @@ def _is_bounce(candles: list[CandleSnapshot], support: dict) -> bool:
     return near_support and bullish_rejection and lower_wick >= body * 0.5
 
 
+def _is_resistance_rejection(candles: list[CandleSnapshot], resistance: dict) -> bool:
+    if len(candles) < 3:
+        return False
+    latest = candles[-1]
+    prior = candles[-2]
+    resistance_price = resistance["price"]
+    near_resistance = max(latest.high, prior.high) >= resistance_price * 0.988
+    bearish_rejection = latest.close < latest.open and latest.close < prior.close
+    upper_wick = latest.high - max(latest.open, latest.close)
+    body = abs(latest.close - latest.open) or latest.close * 0.0001
+    return near_resistance and bearish_rejection and upper_wick >= body * 0.5
+
+
 def _transition_play(tf_15m, tf_1h) -> bool:
     if tf_15m.rsi is None or tf_1h.macd is None or tf_1h.macd_signal is None:
         return False
     return 35 <= tf_15m.rsi <= 48 and tf_1h.macd > tf_1h.macd_signal
+
+
+def _short_transition_play(tf_15m, tf_1h) -> bool:
+    if tf_15m.rsi is None or tf_1h.macd is None or tf_1h.macd_signal is None:
+        return False
+    return 55 <= tf_15m.rsi <= 70 and tf_1h.macd < tf_1h.macd_signal
 
 
 def _confidence(

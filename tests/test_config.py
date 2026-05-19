@@ -14,6 +14,9 @@ class SettingsTests(unittest.TestCase):
             "PREFILTER_LIMIT",
             "DISCOVERY_LIMIT",
             "DEEP_SCAN_LIMIT",
+            "SCAN_WORKERS",
+            "FETCH_TIMEOUT_SECONDS",
+            "PREFILTER_CANDLE_LIMIT",
             "AUTO_SCAN_ENABLED",
             "AUTO_SCAN_INTERVAL_SECONDS",
             "SCAN_INTERVAL_SECONDS",
@@ -29,6 +32,9 @@ class SettingsTests(unittest.TestCase):
             "PREFILTER_LIMIT",
             "DISCOVERY_LIMIT",
             "DEEP_SCAN_LIMIT",
+            "SCAN_WORKERS",
+            "FETCH_TIMEOUT_SECONDS",
+            "PREFILTER_CANDLE_LIMIT",
             "AUTO_SCAN_ENABLED",
             "AUTO_SCAN_INTERVAL_SECONDS",
             "SCAN_INTERVAL_SECONDS",
@@ -51,6 +57,9 @@ class SettingsTests(unittest.TestCase):
 
         self.assertEqual(settings.prefilter_limit, 100)
         self.assertEqual(settings.deep_scan_limit, 20)
+        self.assertEqual(settings.scan_workers, 8)
+        self.assertEqual(settings.fetch_timeout_seconds, 20)
+        self.assertEqual(settings.prefilter_candle_limit, 40)
         self.assertTrue(settings.auto_scan_enabled)
         self.assertEqual(settings.auto_scan_interval_seconds, settings.scan_interval_seconds)
         self.assertEqual(settings.telegram_min_signal, "watch")

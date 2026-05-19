@@ -52,8 +52,14 @@ class TwoStageScanTests(unittest.TestCase):
         coach.settings = SimpleNamespace(
             prefilter_limit=4,
             deep_scan_limit=2,
+            scan_workers=2,
+            fetch_timeout_seconds=20,
+            prefilter_candle_limit=40,
+            timeframes=["15m"],
+            candle_limit=40,
             coinalyze_api_key=None,
             oi_limit=10,
+            min_volume_24h_usd=50_000_000,
         )
         coach.gatekeeper = FakeGatekeeper()
         coach.discovery = FakeDiscovery()
@@ -72,7 +78,42 @@ class TwoStageScanTests(unittest.TestCase):
         self.assertEqual(summary.deep_analyzed, 2)
         self.assertEqual(len(results), 2)
         self.assertEqual([item.symbol for item in scores], ["AAA/USD", "CCC/USD", "BBB/USD"])
-        self.assertTrue(any("BAD/USD ticker skipped" in warning for warning in summary.warnings))
+        self.assertTrue(any("BAD/USD prefilter skipped" in warning for warning in summary.warnings))
+        self.assertEqual(summary.worker_count, 2)
+        self.assertGreaterEqual(summary.failed_symbols, 1)
+
+    def test_scan_caches_duplicate_prefilter_fetches(self) -> None:
+        coach = CoachMirandaMiner.__new__(CoachMirandaMiner)
+        coach.settings = SimpleNamespace(
+            prefilter_limit=2,
+            deep_scan_limit=0,
+            scan_workers=1,
+            fetch_timeout_seconds=20,
+            prefilter_candle_limit=40,
+            timeframes=["15m"],
+            candle_limit=40,
+            coinalyze_api_key=None,
+            oi_limit=10,
+            min_volume_24h_usd=50_000_000,
+        )
+        coach.gatekeeper = FakeGatekeeper()
+        coach.discovery = DuplicateDiscovery()
+        coach.router = FakeRouter()
+        coach.oi_scanner = FakeOIScanner()
+        coach.intelligence = FakeIntelligence()
+        coach.analyzer = FakeAnalyzer()
+        coach.validator = FakeValidator()
+        coach.journal = FakeJournal()
+        coach.alerts = FakeFormatter()
+        coach.telegram = FakeTelegram()
+
+        summary, scores, results = coach.scan_setups()
+
+        self.assertEqual(summary.candidates_scanned, 2)
+        self.assertEqual(len(scores), 2)
+        self.assertEqual(results, [])
+        self.assertEqual(coach.router.ticker_calls["AAA/USD"], 1)
+        self.assertEqual(coach.router.candle_calls["AAA/USD"], 1)
 
 
 class FakeGatekeeper:
@@ -88,8 +129,18 @@ class FakeDiscovery:
         return [_candidate("AAA"), _candidate("BBB"), _candidate("BAD"), _candidate("CCC")]
 
 
+class DuplicateDiscovery:
+    def discover(self, limit: int) -> list[Candidate]:
+        return [_candidate("AAA"), _candidate("AAA")]
+
+
 class FakeRouter:
+    def __init__(self) -> None:
+        self.ticker_calls: dict[str, int] = {}
+        self.candle_calls: dict[str, int] = {}
+
     def fetch_ticker(self, exchange_id: str, symbol: str) -> TickerSnapshot:
+        self.ticker_calls[symbol] = self.ticker_calls.get(symbol, 0) + 1
         if symbol == "BAD/USD":
             raise ValueError("no ticker")
         values = {
@@ -100,6 +151,7 @@ class FakeRouter:
         return values[symbol]
 
     def fetch_candles(self, exchange_id: str, symbol: str, timeframe: str, limit: int) -> pd.DataFrame:
+        self.candle_calls[symbol] = self.candle_calls.get(symbol, 0) + 1
         volumes = [100.0] * 39 + ([300.0] if symbol == "AAA/USD" else [120.0])
         return pd.DataFrame(
             {
@@ -119,6 +171,9 @@ class FakeOIScanner:
 
 
 class FakeIntelligence:
+    chart_renderer = None
+    news_provider = None
+
     def gather(self, candidate: Candidate, market_regime: MarketRegime) -> IntelligencePack:
         candle = CandleSnapshot(
             timestamp=datetime.now(timezone.utc),

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pandas as pd
+
 from .exchanges import ExchangeRouter
 from .indicators import atr, macd, relative_volume, rsi
 from .models import (
@@ -21,24 +23,22 @@ class IntelligenceGatherer:
         candle_limit: int,
         chart_renderer: ChartRenderer | None = None,
         news_provider: NewsProvider | None = None,
+        candle_fetcher=None,
     ) -> None:
         self.router = router
         self.timeframes = timeframes
         self.candle_limit = candle_limit
         self.chart_renderer = chart_renderer
         self.news_provider = news_provider or EmptyNewsProvider()
+        self.candle_fetcher = candle_fetcher
 
     def gather(self, candidate: Candidate, market_regime: MarketRegime) -> IntelligencePack:
         snapshots: list[IndicatorSnapshot] = []
         candles_by_timeframe: dict[str, list[CandleSnapshot]] = {}
         chart_paths: list[str] = []
         for timeframe in self.timeframes:
-            candles = self.router.fetch_candles(
-                candidate.exchange_id,
-                candidate.route_symbol,
-                timeframe,
-                self.candle_limit,
-            )
+            fetch_candles = self.candle_fetcher or self.router.fetch_candles
+            candles = fetch_candles(candidate.exchange_id, candidate.route_symbol, timeframe, self.candle_limit)
             if self.chart_renderer is not None:
                 try:
                     chart_paths.append(
@@ -87,6 +87,6 @@ class IntelligenceGatherer:
 
 def _last_float(series) -> float | None:
     value = series.iloc[-1]
-    if value != value:
+    if value is None or pd.isna(value):
         return None
     return float(value)

@@ -12,7 +12,10 @@ def rsi(series: pd.Series, period: int) -> pd.Series:
     gain = delta.clip(lower=0).rolling(window=period, min_periods=period).mean()
     loss = -delta.clip(upper=0).rolling(window=period, min_periods=period).mean()
     relative_strength = gain / loss.replace(0, pd.NA)
-    return 100 - (100 / (1 + relative_strength))
+    value = 100 - (100 / (1 + relative_strength))
+    value = value.mask((loss == 0) & (gain > 0), 100)
+    value = value.mask((gain == 0) & (loss > 0), 0)
+    return value
 
 
 def macd(
