@@ -28,15 +28,15 @@ class AlertFormatter:
         market_text = " | ".join(market) or "Market context: n/a"
         signal_note = ""
         if thesis.signal.value == "watch":
-            signal_note = "Status: WATCH only - not confirmed entry.\n"
+            signal_note = f"Status: WATCH only - not confirmed entry ({thesis.direction.upper()}).\n"
         if thesis.signal.value == "enter":
-            signal_note = "Status: ENTER - rules confirm entry conditions.\n"
+            signal_note = f"Status: ENTER - rules confirm {thesis.direction.upper()} entry conditions.\n"
         tv_link = tradingview_link(candidate.route_symbol)
         trade_link = candidate.trading_link or "n/a"
         return (
             f"Coach Miranda Miner\n"
             f"Symbol: {candidate.route_symbol} on {candidate.exchange_id}\n"
-            f"Setup: {thesis.setup.value} | Signal: {thesis.signal.value} | "
+            f"Setup: {thesis.setup.value} | Signal: {thesis.signal.value.upper()} {thesis.direction.upper()} | "
             f"{status} | Grade: {quality}\n"
             f"{signal_note}"
             f"Direction: {thesis.direction} | Confidence: {thesis.confidence:.2f}\n"

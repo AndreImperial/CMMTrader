@@ -38,6 +38,19 @@ class RuleBasedAnalyzer(Analyzer):
 
         prison = _prison_break_state(candles_15m)
         short_prison = _short_prison_break_state(candles_15m)
+        if _is_long_false_breakout(candles_15m) or _is_short_false_breakout(candles_15m):
+            return TradeThesis(
+                symbol=pack.candidate.route_symbol,
+                setup=Setup.NONE,
+                signal=SignalState.REJECT,
+                direction="none",
+                confidence=0.15,
+                invalidation_reason="False breakout: price closed back inside the prison range.",
+                evidence=[
+                    "False breakout filter rejected the setup.",
+                    "Price broke structure and then closed back inside the prior range.",
+                ],
+            )
         relative_volume = tf_15m.relative_volume or 0.0
         volume_confirmed = relative_volume >= 1.35
         breakout_volume_confirmed = relative_volume >= 1.55
@@ -64,16 +77,29 @@ class RuleBasedAnalyzer(Analyzer):
         short_rsi_ok = tf_15m.rsi is not None and 34 <= tf_15m.rsi <= 62
         long_overextended = tf_15m.rsi is not None and tf_15m.rsi > 74
         short_overextended = tf_15m.rsi is not None and tf_15m.rsi < 26
+        if long_overextended and not pack.market_regime.shorts_allowed:
+            return _rejected(pack, "overextended RSI", f"15m RSI is overheated at {tf_15m.rsi:.2f}.")
+        if short_overextended and not pack.market_regime.longs_allowed:
+            return _rejected(pack, "overextended RSI", f"15m RSI is washed out at {tf_15m.rsi:.2f}.")
 
         if pack.market_regime.longs_allowed and not long_overextended and long_trend_ok and _transition_play(tf_15m, tf_1h):
             return _long_thesis(
                 pack,
                 Setup.TRANSITION_PLAY,
-                prison,
-                confidence=_confidence(0.58, prison, volume_confirmed, compression, macd_bullish, long_trend_ok),
+                _enter_signal(prison, volume_confirmed),
+                confidence=_setup_confidence(
+                    Setup.TRANSITION_PLAY,
+                    prison,
+                    volume_confirmed,
+                    compression,
+                    macd_bullish,
+                    long_trend_ok,
+                    0.65,
+                ),
                 evidence=[
                     "RSI is recovering from a weak zone.",
                     "1h MACD momentum supports reversal conditions.",
+                    _setup_score_evidence(Setup.TRANSITION_PLAY, 0.65, relative_volume, compression),
                     _trend_evidence(trend_1h, trend_4h),
                     f"15m prison-break state is {prison.value}.",
                 ],
@@ -88,11 +114,20 @@ class RuleBasedAnalyzer(Analyzer):
             return _short_thesis(
                 pack,
                 Setup.TRANSITION_PLAY,
-                short_prison,
-                confidence=_confidence(0.58, short_prison, volume_confirmed, compression, macd_bearish, short_trend_ok),
+                _enter_signal(short_prison, volume_confirmed),
+                confidence=_setup_confidence(
+                    Setup.TRANSITION_PLAY,
+                    short_prison,
+                    volume_confirmed,
+                    compression,
+                    macd_bearish,
+                    short_trend_ok,
+                    0.65,
+                ),
                 evidence=[
                     "Short transition: RSI is rolling over from a strong zone.",
                     "1h MACD momentum supports bearish reversal conditions.",
+                    _setup_score_evidence(Setup.TRANSITION_PLAY, 0.65, relative_volume, compression),
                     _trend_evidence(trend_1h, trend_4h),
                     f"15m short prison-break state is {short_prison.value}.",
                 ],
@@ -108,11 +143,20 @@ class RuleBasedAnalyzer(Analyzer):
             return _long_thesis(
                 pack,
                 Setup.BOUNCE,
-                prison,
-                confidence=_confidence(0.58, prison, volume_confirmed, compression, macd_bullish, long_trend_ok),
+                _enter_signal(prison, volume_confirmed),
+                confidence=_setup_confidence(
+                    Setup.BOUNCE,
+                    prison,
+                    volume_confirmed,
+                    compression,
+                    macd_bullish,
+                    long_trend_ok,
+                    support["quality"],
+                ),
                 evidence=[
-                    f"Support zone has {support['touches']} wick touches.",
+                    f"Support zone has {support['touches']} wick touches and quality {support['quality']:.2f}.",
                     "Latest candles show rejection near support.",
+                    _setup_score_evidence(Setup.BOUNCE, support["quality"], relative_volume, compression),
                     _trend_evidence(trend_1h, trend_4h),
                     f"15m RSI is {tf_15m.rsi:.2f}.",
                 ],
@@ -128,11 +172,20 @@ class RuleBasedAnalyzer(Analyzer):
             return _short_thesis(
                 pack,
                 Setup.BOUNCE,
-                short_prison,
-                confidence=_confidence(0.58, short_prison, volume_confirmed, compression, macd_bearish, short_trend_ok),
+                _enter_signal(short_prison, volume_confirmed),
+                confidence=_setup_confidence(
+                    Setup.BOUNCE,
+                    short_prison,
+                    volume_confirmed,
+                    compression,
+                    macd_bearish,
+                    short_trend_ok,
+                    resistance["quality"],
+                ),
                 evidence=[
-                    f"Resistance zone has {resistance['touches']} wick touches.",
+                    f"Resistance zone has {resistance['touches']} wick touches and quality {resistance['quality']:.2f}.",
                     "Short bounce: latest candles show rejection near resistance.",
+                    _setup_score_evidence(Setup.BOUNCE, resistance["quality"], relative_volume, compression),
                     _trend_evidence(trend_1h, trend_4h),
                     f"15m RSI is {tf_15m.rsi:.2f}.",
                 ],
@@ -148,6 +201,7 @@ class RuleBasedAnalyzer(Analyzer):
             evidence = [
                 f"15m range compression ratio is {compression:.2f}.",
                 f"15m prison-break state is {prison.value}.",
+                _setup_score_evidence(Setup.APEX_SQUEEZE, 1.0 - compression, relative_volume, compression),
                 _trend_evidence(trend_1h, trend_4h),
             ]
             if breakout_volume_confirmed:
@@ -158,7 +212,15 @@ class RuleBasedAnalyzer(Analyzer):
                 pack,
                 Setup.APEX_SQUEEZE,
                 prison if breakout_volume_confirmed else SignalState.WATCH,
-                confidence=_confidence(0.62, prison, breakout_volume_confirmed, compression, macd_bullish, long_continuation_ok),
+                confidence=_setup_confidence(
+                    Setup.APEX_SQUEEZE,
+                    prison,
+                    breakout_volume_confirmed,
+                    compression,
+                    macd_bullish,
+                    long_continuation_ok,
+                    1.0 - compression,
+                ),
                 evidence=evidence,
             )
 
@@ -173,6 +235,7 @@ class RuleBasedAnalyzer(Analyzer):
                 f"15m range compression ratio is {compression:.2f}.",
                 f"15m short prison-break state is {short_prison.value}.",
                 "Short apex squeeze: price is threatening a downside breakdown.",
+                _setup_score_evidence(Setup.APEX_SQUEEZE, 1.0 - compression, relative_volume, compression),
                 _trend_evidence(trend_1h, trend_4h),
             ]
             if breakout_volume_confirmed:
@@ -183,7 +246,15 @@ class RuleBasedAnalyzer(Analyzer):
                 pack,
                 Setup.APEX_SQUEEZE,
                 short_prison if breakout_volume_confirmed else SignalState.WATCH,
-                confidence=_confidence(0.62, short_prison, breakout_volume_confirmed, compression, macd_bearish, short_continuation_ok),
+                confidence=_setup_confidence(
+                    Setup.APEX_SQUEEZE,
+                    short_prison,
+                    breakout_volume_confirmed,
+                    compression,
+                    macd_bearish,
+                    short_continuation_ok,
+                    1.0 - compression,
+                ),
                 evidence=evidence,
             )
 
@@ -200,12 +271,21 @@ class RuleBasedAnalyzer(Analyzer):
                 pack,
                 Setup.TABO,
                 prison if volume_confirmed else SignalState.WATCH,
-                confidence=_confidence(0.56, prison, volume_confirmed, compression, macd_bullish, long_continuation_ok),
+                confidence=_setup_confidence(
+                    Setup.TABO,
+                    prison,
+                    volume_confirmed,
+                    compression,
+                    macd_bullish,
+                    long_continuation_ok,
+                    resistance["quality"],
+                ),
                 evidence=[
                     "1h MACD is above signal.",
                     "15m RSI is in a tradable continuation range.",
+                    _setup_score_evidence(Setup.TABO, resistance["quality"], relative_volume, compression),
                     _trend_evidence(trend_1h, trend_4h),
-                    f"Nearby resistance zone has {resistance['touches']} wick touches.",
+                    f"Nearby resistance zone has {resistance['touches']} wick touches and quality {resistance['quality']:.2f}.",
                     f"15m prison-break state is {prison.value}.",
                 ],
             )
@@ -223,25 +303,45 @@ class RuleBasedAnalyzer(Analyzer):
                 pack,
                 Setup.TABO,
                 short_prison if volume_confirmed else SignalState.WATCH,
-                confidence=_confidence(0.56, short_prison, volume_confirmed, compression, macd_bearish, short_continuation_ok),
+                confidence=_setup_confidence(
+                    Setup.TABO,
+                    short_prison,
+                    volume_confirmed,
+                    compression,
+                    macd_bearish,
+                    short_continuation_ok,
+                    support["quality"],
+                ),
                 evidence=[
                     "Short TABO: 1h MACD is below signal.",
                     "15m RSI is in a tradable bearish continuation range.",
+                    _setup_score_evidence(Setup.TABO, support["quality"], relative_volume, compression),
                     _trend_evidence(trend_1h, trend_4h),
-                    f"Nearby support zone has {support['touches']} wick touches.",
+                    f"Nearby support zone has {support['touches']} wick touches and quality {support['quality']:.2f}.",
                     f"15m short prison-break state is {short_prison.value}.",
                 ],
             )
 
+        invalidations = _invalidation_reasons(
+            long_trend_ok=long_trend_ok,
+            short_trend_ok=short_trend_ok,
+            volume_confirmed=volume_confirmed,
+            support=support,
+            resistance=resistance,
+            long_overextended=long_overextended,
+            short_overextended=short_overextended,
+            rsi=tf_15m.rsi,
+        )
         return TradeThesis(
             symbol=pack.candidate.route_symbol,
             setup=Setup.NONE,
             signal=SignalState.WAIT,
             direction="none",
             confidence=0.35,
-            invalidation_reason="No deterministic setup passed the current filters.",
+            invalidation_reason="; ".join(invalidations) or "No deterministic setup passed the current filters.",
             evidence=[
                 "Momentum, trend, volume, and entry timing are not aligned.",
+                *invalidations,
                 _trend_evidence(trend_1h, trend_4h),
             ],
         )
@@ -459,6 +559,36 @@ def _short_prison_break_state(candles: list[CandleSnapshot]) -> SignalState:
     return SignalState.WAIT
 
 
+def _is_long_false_breakout(candles: list[CandleSnapshot]) -> bool:
+    if len(candles) < 24:
+        return False
+    prison = candles[-23:-3]
+    last_three = candles[-3:]
+    high = max(candle.high for candle in prison)
+    low = min(candle.low for candle in prison)
+    prev_close = last_three[-2].close
+    last_close = last_three[-1].close
+    return prev_close > high and low <= last_close <= high
+
+
+def _is_short_false_breakout(candles: list[CandleSnapshot]) -> bool:
+    if len(candles) < 24:
+        return False
+    prison = candles[-23:-3]
+    last_three = candles[-3:]
+    high = max(candle.high for candle in prison)
+    low = min(candle.low for candle in prison)
+    prev_close = last_three[-2].close
+    last_close = last_three[-1].close
+    return prev_close < low and low <= last_close <= high
+
+
+def _enter_signal(signal: SignalState, volume_confirmed: bool) -> SignalState:
+    if signal == SignalState.ENTER and not volume_confirmed:
+        return SignalState.WATCH
+    return signal
+
+
 def _compression_ratio(candles: list[CandleSnapshot]) -> float:
     if len(candles) < 40:
         return 1.0
@@ -480,7 +610,16 @@ def _support_zone(candles: list[CandleSnapshot]) -> dict | None:
     touches = sum(1 for low in lows if abs(low - support) <= tolerance)
     if touches < 3:
         return None
-    return {"price": support, "touches": touches}
+    recent_touch_index = max(
+        (index for index, candle in enumerate(candles[-50:]) if abs(candle.low - support) <= tolerance),
+        default=0,
+    )
+    recency = (recent_touch_index + 1) / min(len(candles), 50)
+    tightness = max(0.0, 1.0 - (tolerance / support if support else 1.0) * 20)
+    quality = _zone_quality(touches, recency, tightness)
+    if quality < 0.45:
+        return None
+    return {"price": support, "touches": touches, "quality": quality, "recency": recency, "tightness": tightness}
 
 
 def _resistance_zone(candles: list[CandleSnapshot]) -> dict | None:
@@ -492,7 +631,22 @@ def _resistance_zone(candles: list[CandleSnapshot]) -> dict | None:
     touches = sum(1 for high in highs if abs(high - resistance) <= tolerance)
     if touches < 3:
         return None
-    return {"price": resistance, "touches": touches}
+    recent_touch_index = max(
+        (index for index, candle in enumerate(candles[-50:]) if abs(candle.high - resistance) <= tolerance),
+        default=0,
+    )
+    recency = (recent_touch_index + 1) / min(len(candles), 50)
+    tightness = max(0.0, 1.0 - (tolerance / resistance if resistance else 1.0) * 20)
+    quality = _zone_quality(touches, recency, tightness)
+    if quality < 0.45:
+        return None
+    return {"price": resistance, "touches": touches, "quality": quality, "recency": recency, "tightness": tightness}
+
+
+def _zone_quality(touches: int, recency: float, tightness: float) -> float:
+    touch_score = min(touches / 6, 1.0)
+    score = (touch_score * 0.5) + (recency * 0.3) + (tightness * 0.2)
+    return round(max(0.0, min(score, 1.0)), 2)
 
 
 def _is_bounce(candles: list[CandleSnapshot], support: dict) -> bool:
@@ -552,29 +706,87 @@ def _trend_evidence(trend_1h: str, trend_4h: str) -> str:
     return f"Trend filter: 1h is {trend_1h}, 4h is {trend_4h}."
 
 
-def _confidence(
-    base: float,
+def _setup_confidence(
+    setup: Setup,
     prison: SignalState,
     volume_confirmed: bool,
     compression: float,
-    macd_bullish: bool,
+    momentum_aligned: bool,
     trend_aligned: bool,
+    structure_quality: float,
 ) -> float:
-    score = base
+    score = {
+        Setup.TABO: 0.56,
+        Setup.APEX_SQUEEZE: 0.60,
+        Setup.BOUNCE: 0.57,
+        Setup.TRANSITION_PLAY: 0.56,
+    }.get(setup, 0.45)
     if prison == SignalState.WATCH:
         score += 0.04
     if prison == SignalState.ENTER:
         score += 0.12
     if volume_confirmed:
         score += 0.08
-    if compression < 0.7:
-        score += 0.05
-    if macd_bullish:
+    if setup == Setup.APEX_SQUEEZE and compression < 0.7:
+        score += 0.07
+    elif compression < 0.85:
+        score += 0.03
+    if momentum_aligned:
         score += 0.04
     if trend_aligned:
         score += 0.05
     else:
         score -= 0.08
+    score += max(0.0, min(structure_quality, 1.0)) * 0.08
     if prison == SignalState.REJECT:
         score -= 0.18
     return max(0.0, min(score, 0.92))
+
+
+def _setup_score_evidence(
+    setup: Setup,
+    structure_quality: float,
+    relative_volume: float,
+    compression: float,
+) -> str:
+    return (
+        f"Setup score components for {setup.value}: structure {structure_quality:.2f}, "
+        f"relative volume {relative_volume:.2f}x, compression {compression:.2f}."
+    )
+
+
+def _invalidation_reasons(
+    *,
+    long_trend_ok: bool,
+    short_trend_ok: bool,
+    volume_confirmed: bool,
+    support: dict | None,
+    resistance: dict | None,
+    long_overextended: bool,
+    short_overextended: bool,
+    rsi: float | None,
+) -> list[str]:
+    reasons: list[str] = []
+    if not long_trend_ok and not short_trend_ok:
+        reasons.append("bad trend: 1h/4h structure is conflicted.")
+    if not volume_confirmed:
+        reasons.append("low volume: relative volume is below confirmation threshold.")
+    if support is None and resistance is None:
+        reasons.append("weak zone: no high-quality support/resistance zone.")
+    if long_overextended and rsi is not None:
+        reasons.append(f"overextended RSI: bullish chase risk at {rsi:.2f}.")
+    if short_overextended and rsi is not None:
+        reasons.append(f"overextended RSI: bearish chase risk at {rsi:.2f}.")
+    return reasons
+
+
+def _rejected(pack: IntelligencePack, reason: str, detail: str) -> TradeThesis:
+    return TradeThesis(
+        symbol=pack.candidate.route_symbol,
+        setup=Setup.NONE,
+        signal=SignalState.REJECT,
+        direction="none",
+        confidence=0.2,
+        invalidation_reason=f"{reason}: {detail}",
+        evidence=[detail],
+    )
