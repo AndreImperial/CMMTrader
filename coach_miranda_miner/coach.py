@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import math
@@ -149,6 +149,8 @@ class CoachMirandaMiner:
         started_at = time.perf_counter()
         warnings: list[str] = []
         worker_count = max(1, self.settings.scan_workers)
+        outcome_updates = self._auto_update_outcomes()
+        expired_setups = self._expire_active_setups()
         self._scan_ticker_cache = {}
         self._scan_candle_cache = {}
         self._scan_cache_lock = Lock()
@@ -250,7 +252,19 @@ class CoachMirandaMiner:
         summary = ScanSummary(
             candidates_scanned=len(ranked),
             deep_analyzed=len(deep_results),
-            warnings=warnings,
+            warnings=[
+                *(
+                    [f"Updated {outcome_updates} due signal outcomes."]
+                    if outcome_updates
+                    else []
+                ),
+                *(
+                    [f"Expired {expired_setups} stale WATCH setups."]
+                    if expired_setups
+                    else []
+                ),
+                *warnings,
+            ],
             coinalyze_enabled=bool(self.settings.coinalyze_api_key),
             market_regime=market_regime,
             duration_seconds=_elapsed(started_at),
@@ -345,6 +359,30 @@ class CoachMirandaMiner:
             relative_volume=score.relative_volume,
         )
         self._record_outcome_seeds(result)
+        self._record_active_setup(result)
+
+    def _record_active_setup(self, result: DeepScanResult) -> None:
+        if not hasattr(self.journal, "record_active_setup"):
+            return
+        thesis = result.thesis
+        if thesis.signal not in {SignalState.WATCH, SignalState.ENTER}:
+            return
+        if thesis.direction == "none" or thesis.setup.value == "none":
+            return
+        status = "confirmed" if thesis.signal == SignalState.ENTER else "watch"
+        self.journal.record_active_setup(
+            symbol=thesis.symbol,
+            setup=thesis.setup.value,
+            direction=thesis.direction,
+            status=status,
+            grade=alert_grade(thesis, result.validation, result.score),
+            entry=thesis.entry,
+            stop_loss=thesis.stop_loss,
+            target=thesis.targets[0] if thesis.targets else None,
+            score=result.score.score,
+            confidence=thesis.confidence,
+            ttl_minutes=getattr(self.settings, "active_setup_ttl_minutes", 240),
+        )
 
     def _record_outcome_seeds(self, result: DeepScanResult) -> None:
         if not hasattr(self.journal, "record_signal_outcome_seed"):
@@ -544,6 +582,10 @@ class CoachMirandaMiner:
         min_alert_grade = getattr(self.settings, "min_alert_grade", "B")
         if grade_rank(grade) < grade_rank(min_alert_grade):
             return False
+        has_watch = self._has_active_watch(thesis)
+        if thesis.signal == SignalState.ENTER and getattr(self.settings, "require_watch_before_enter", False):
+            if not has_watch:
+                return False
         if self.journal.alert_sent_recently(
             thesis.symbol,
             thesis.setup.value,
@@ -555,7 +597,10 @@ class CoachMirandaMiner:
         if thesis.signal == SignalState.WATCH:
             prefix += "Manual review: setup is forming, not confirmed entry.\n\n"
         if thesis.signal == SignalState.ENTER:
-            prefix += "Manual review: entry conditions are confirmed by rules.\n\n"
+            if has_watch:
+                prefix += "Manual review: WATCH setup confirmed into ENTER.\n\n"
+            else:
+                prefix += "Manual review: direct ENTER, no recent WATCH was stored.\n\n"
         try:
             buttons = telegram_buttons(candidate, getattr(self.settings, "dashboard_url", None))
             try:
@@ -573,6 +618,16 @@ class CoachMirandaMiner:
             )
         return sent
 
+    def _has_active_watch(self, thesis: TradeThesis) -> bool:
+        if not hasattr(self.journal, "active_watch_exists"):
+            return False
+        return self.journal.active_watch_exists(
+            thesis.symbol,
+            thesis.setup.value,
+            thesis.direction,
+            getattr(self.settings, "active_setup_ttl_minutes", 240),
+        )
+
     def _signal_meets_alert_threshold(self, signal: SignalState) -> bool:
         thresholds = {
             "enter": {SignalState.ENTER},
@@ -586,6 +641,8 @@ class CoachMirandaMiner:
         return "\n\n".join(messages)
 
     def update_signal_outcomes(self, limit: int = 100) -> int:
+        if not hasattr(self.journal, "pending_signal_outcomes"):
+            return 0
         updated = 0
         for outcome in self.journal.pending_signal_outcomes(limit):
             created_at = datetime.fromisoformat(outcome["created_at"])
@@ -615,6 +672,20 @@ class CoachMirandaMiner:
             )
             updated += 1
         return updated
+
+    def _auto_update_outcomes(self) -> int:
+        try:
+            return self.update_signal_outcomes(limit=50)
+        except (CcxtError, requests.RequestException, ValueError, IndexError, AttributeError):
+            return 0
+
+    def _expire_active_setups(self) -> int:
+        if not hasattr(self.journal, "expire_active_setups"):
+            return 0
+        try:
+            return self.journal.expire_active_setups()
+        except (ValueError, AttributeError):
+            return 0
 
     def high_oi_watchlist(
         self,
@@ -699,25 +770,37 @@ class CoachMirandaMiner:
         except (CcxtError, requests.RequestException, ValueError):
             candidates = []
         rows: list[dict] = []
-        for candidate in candidates[:row_limit]:
-            try:
-                result = self.backtest(candidate.route_symbol, timeframe, strategy, side)
-            except (CcxtError, requests.RequestException, ValueError, IndexError):
-                continue
-            rows.append(
-                {
-                    "symbol": result.symbol,
-                    "timeframe": result.timeframe,
-                    "trades": result.trades,
-                    "win_rate": result.win_rate,
-                    "return_pct": result.total_return_pct,
-                    "drawdown_pct": result.max_drawdown_pct,
-                    "profit_factor": result.profit_factor,
-                    "expectancy_pct": result.expectancy_pct,
-                    "long_trades": result.long_trades,
-                    "short_trades": result.short_trades,
-                }
-            )
+        worker_count = max(1, min(self.settings.scan_workers, row_limit))
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(
+                    self.backtest,
+                    candidate.route_symbol,
+                    timeframe,
+                    strategy,
+                    side,
+                ): candidate
+                for candidate in candidates[:row_limit]
+            }
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                except (CcxtError, requests.RequestException, ValueError, IndexError):
+                    continue
+                rows.append(
+                    {
+                        "symbol": result.symbol,
+                        "timeframe": result.timeframe,
+                        "trades": result.trades,
+                        "win_rate": result.win_rate,
+                        "return_pct": result.total_return_pct,
+                        "drawdown_pct": result.max_drawdown_pct,
+                        "profit_factor": result.profit_factor,
+                        "expectancy_pct": result.expectancy_pct,
+                        "long_trades": result.long_trades,
+                        "short_trades": result.short_trades,
+                    }
+                )
         return sorted(
             rows,
             key=lambda row: (row["expectancy_pct"], row["profit_factor"], row["trades"]),

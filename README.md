@@ -155,6 +155,9 @@ RENDER_CHARTS=false
 TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
 TELEGRAM_MIN_SIGNAL=enter
+MIN_ALERT_GRADE=B
+REQUIRE_WATCH_BEFORE_ENTER=false
+ACTIVE_SETUP_TTL_MINUTES=240
 ALERT_COOLDOWN_MINUTES=180
 COINALYZE_API_KEY=your_optional_key_for_24h_oi_change
 ```
@@ -188,6 +191,16 @@ ALERT_COOLDOWN_MINUTES=180
 
 The alert system does not place trades. It only notifies you so you can review
 and trade manually.
+
+Alerts now keep a small lifecycle journal:
+
+- WATCH setups are stored as active setups.
+- ENTER alerts can reference a recent WATCH when the setup confirms.
+- `REQUIRE_WATCH_BEFORE_ENTER=true` makes ENTER alerts stricter by requiring
+  a recent WATCH first.
+- Duplicate pending outcome rows are skipped so calibration does not get
+  polluted by repeated scans of the same setup.
+- Due 1h/4h/24h outcomes are refreshed automatically during scans.
 
 ## High OI + Volume
 
@@ -224,6 +237,9 @@ MIN_RISK_REWARD=2.0
 MAX_STOP_ATR_MULTIPLE=3
 BTC_KILL_SWITCH_DROP_PCT=3
 MIN_VOLUME_24H_USD=50000000
+MIN_ALERT_GRADE=B
+REQUIRE_WATCH_BEFORE_ENTER=false
+ACTIVE_SETUP_TTL_MINUTES=240
 ```
 
 The backtester includes basic trading friction:
@@ -233,7 +249,11 @@ BACKTEST_FEE_BPS=10
 BACKTEST_SLIPPAGE_BPS=5
 BACKTEST_STOP_ATR_MULTIPLE=1.5
 BACKTEST_TARGET_R_MULTIPLE=2
+BACKTEST_LIMIT=25
 ```
+
+The dashboard can run single-symbol backtests or a concurrent batch backtest
+across the current top universe.
 
 ## Project Layout
 
@@ -265,7 +285,7 @@ coach_miranda_miner/
 
 ## Next Steps
 
-1. Add public open-interest adapters for Binance, Bybit, and OKX.
-2. Add a small local dashboard.
-3. Add strategy tests against saved candle fixtures.
+1. Add more saved historical candle fixtures for realistic strategy regression.
+2. Add Telegram callback actions for snooze/ignore/mark-reviewed.
+3. Add optional GitHub Actions artifact export for scan and backtest history.
 4. Only then consider live execution.

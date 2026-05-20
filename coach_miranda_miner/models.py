@@ -47,6 +47,9 @@ class MarketRegime(BaseModel):
     btc_change_24h_pct: float
     longs_allowed: bool
     shorts_allowed: bool = True
+    eth_change_24h_pct: float | None = None
+    trend_score: float = 0.0
+    risk_mode: str = "neutral"
     reason: str
 
 

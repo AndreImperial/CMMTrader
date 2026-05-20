@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from datetime import timedelta
 import json
 import sqlite3
 
@@ -111,6 +112,26 @@ class Journal:
                     status TEXT NOT NULL,
                     return_pct REAL,
                     exit_reason TEXT
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS active_setups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    setup TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    grade TEXT NOT NULL,
+                    entry REAL,
+                    stop_loss REAL,
+                    target REAL,
+                    score REAL,
+                    confidence REAL,
+                    expires_at TEXT NOT NULL
                 )
                 """
             )
@@ -288,6 +309,19 @@ class Journal:
     ) -> None:
         now = datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
+            duplicate = conn.execute(
+                """
+                SELECT id
+                FROM signal_outcomes
+                WHERE symbol = ? AND setup = ? AND signal = ? AND direction = ?
+                  AND horizon_hours = ? AND status = 'pending'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (symbol, setup, signal, direction, horizon_hours),
+            ).fetchone()
+            if duplicate is not None:
+                return
             conn.execute(
                 """
                 INSERT INTO signal_outcomes (
@@ -315,6 +349,156 @@ class Journal:
                     "pending",
                 ),
             )
+
+    def record_active_setup(
+        self,
+        symbol: str,
+        setup: str,
+        direction: str,
+        status: str,
+        grade: str,
+        entry: float | None,
+        stop_loss: float | None,
+        target: float | None,
+        score: float | None,
+        confidence: float,
+        ttl_minutes: int = 180,
+    ) -> None:
+        now_dt = datetime.now(timezone.utc)
+        now = now_dt.isoformat()
+        expires_at = (now_dt.replace(microsecond=0) + _minutes(ttl_minutes)).isoformat()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id
+                FROM active_setups
+                WHERE symbol = ? AND setup = ? AND direction = ?
+                  AND status IN ('watch', 'confirmed')
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (symbol, setup, direction),
+            ).fetchone()
+            if row is None:
+                conn.execute(
+                    """
+                    INSERT INTO active_setups (
+                        created_at, updated_at, symbol, setup, direction, status,
+                        grade, entry, stop_loss, target, score, confidence, expires_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        now,
+                        now,
+                        symbol,
+                        setup,
+                        direction,
+                        status,
+                        grade,
+                        entry,
+                        stop_loss,
+                        target,
+                        score,
+                        confidence,
+                        expires_at,
+                    ),
+                )
+                return
+            conn.execute(
+                """
+                UPDATE active_setups
+                SET updated_at = ?, status = ?, grade = ?, entry = ?,
+                    stop_loss = ?, target = ?, score = ?, confidence = ?,
+                    expires_at = ?
+                WHERE id = ?
+                """,
+                (
+                    now,
+                    status,
+                    grade,
+                    entry,
+                    stop_loss,
+                    target,
+                    score,
+                    confidence,
+                    expires_at,
+                    row[0],
+                ),
+            )
+
+    def active_watch_exists(
+        self,
+        symbol: str,
+        setup: str,
+        direction: str,
+        within_minutes: int = 240,
+    ) -> bool:
+        cutoff = (datetime.now(timezone.utc) - _minutes(within_minutes)).isoformat()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id
+                FROM active_setups
+                WHERE symbol = ? AND setup = ? AND direction = ?
+                  AND status IN ('watch', 'confirmed')
+                  AND updated_at >= ?
+                  AND expires_at >= ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (
+                    symbol,
+                    setup,
+                    direction,
+                    cutoff,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            ).fetchone()
+        return row is not None
+
+    def expire_active_setups(self) -> int:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE active_setups
+                SET status = 'expired', updated_at = ?
+                WHERE status IN ('watch', 'confirmed') AND expires_at < ?
+                """,
+                (now, now),
+            )
+            return cursor.rowcount
+
+    def recent_active_setups(self, limit: int = 50) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT created_at, updated_at, symbol, setup, direction, status,
+                       grade, entry, stop_loss, target, score, confidence, expires_at
+                FROM active_setups
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "created_at": row[0],
+                "updated_at": row[1],
+                "symbol": row[2],
+                "setup": row[3],
+                "direction": row[4],
+                "status": row[5],
+                "grade": row[6],
+                "entry": row[7],
+                "stop_loss": row[8],
+                "target": row[9],
+                "score": row[10],
+                "confidence": row[11],
+                "expires_at": row[12],
+            }
+            for row in rows
+        ]
 
     def pending_signal_outcomes(self, limit: int = 100) -> list[dict]:
         with self._connect() as conn:
@@ -532,3 +716,7 @@ class Journal:
             }
             for row in rows
         ]
+
+
+def _minutes(value: int) -> timedelta:
+    return timedelta(minutes=value)

@@ -91,6 +91,51 @@ class JournalAlertTests(unittest.TestCase):
             self.assertEqual(summary[0]["setup"], "tabo")
             self.assertEqual(summary[0]["win_rate"], 1.0)
 
+    def test_signal_outcome_seed_deduplicates_pending_rows(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
+            db_path = Path(temp_dir) / "journal.sqlite3"
+            journal = Journal(str(db_path))
+            for _ in range(2):
+                journal.record_signal_outcome_seed(
+                    symbol="BTC/USD",
+                    exchange_id="coinbase",
+                    route_symbol="BTC/USD",
+                    setup="tabo",
+                    signal="watch",
+                    direction="long",
+                    grade="B",
+                    entry=100.0,
+                    stop_loss=98.0,
+                    target=104.0,
+                    score=70.0,
+                    confidence=0.72,
+                    horizon_hours=1,
+                )
+
+            self.assertEqual(len(journal.pending_signal_outcomes()), 1)
+
+    def test_active_setup_lifecycle_records_and_finds_watch(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
+            db_path = Path(temp_dir) / "journal.sqlite3"
+            journal = Journal(str(db_path))
+            journal.record_active_setup(
+                symbol="BTC/USD",
+                setup="tabo",
+                direction="long",
+                status="watch",
+                grade="B",
+                entry=100.0,
+                stop_loss=98.0,
+                target=104.0,
+                score=70.0,
+                confidence=0.72,
+                ttl_minutes=240,
+            )
+
+            self.assertTrue(journal.active_watch_exists("BTC/USD", "tabo", "long"))
+            rows = journal.recent_active_setups()
+            self.assertEqual(rows[0]["status"], "watch")
+
 
 if __name__ == "__main__":
     unittest.main()

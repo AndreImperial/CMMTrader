@@ -63,6 +63,8 @@ class Settings:
     telegram_min_signal: str
     min_alert_grade: str
     dashboard_url: str | None
+    require_watch_before_enter: bool
+    active_setup_ttl_minutes: int
     alert_cooldown_minutes: int
 
     @classmethod
@@ -129,6 +131,8 @@ class Settings:
             telegram_min_signal=os.getenv("TELEGRAM_MIN_SIGNAL", "watch").lower(),
             min_alert_grade=os.getenv("MIN_ALERT_GRADE", "B").upper(),
             dashboard_url=_optional(os.getenv("DASHBOARD_URL")),
+            require_watch_before_enter=_bool(os.getenv("REQUIRE_WATCH_BEFORE_ENTER", "false")),
+            active_setup_ttl_minutes=int(os.getenv("ACTIVE_SETUP_TTL_MINUTES", "240")),
             alert_cooldown_minutes=int(os.getenv("ALERT_COOLDOWN_MINUTES", "180")),
         )
 

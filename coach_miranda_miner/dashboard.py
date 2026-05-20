@@ -195,6 +195,12 @@ def render_scan(
     st.caption(f"Last scan: {summary.created_at.strftime('%Y-%m-%d %H:%M UTC')}")
     if summary.market_regime is not None:
         st.subheader("Market Regime")
+        regime_cols = st.columns(4)
+        regime_cols[0].metric("Mode", summary.market_regime.risk_mode)
+        regime_cols[1].metric("Trend Score", f"{summary.market_regime.trend_score:.2f}")
+        regime_cols[2].metric("BTC 24h", f"{summary.market_regime.btc_change_24h_pct:.2f}%")
+        eth_change = summary.market_regime.eth_change_24h_pct
+        regime_cols[3].metric("ETH 24h", f"{eth_change:.2f}%" if eth_change is not None else "n/a")
         st.write(summary.market_regime.reason)
     for warning in summary.warnings[:6]:
         st.caption(warning)
@@ -427,6 +433,28 @@ def render_high_oi_from_scores(scores) -> None:
 
 
 def render_history(coach: CoachMirandaMiner) -> None:
+    st.subheader("Active WATCH/ENTER Lifecycle")
+    active_rows = (
+        coach.journal.recent_active_setups(50)
+        if hasattr(coach.journal, "recent_active_setups")
+        else []
+    )
+    if active_rows:
+        st.dataframe(
+            pd.DataFrame(active_rows),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "entry": st.column_config.NumberColumn("Entry", format="%.6f"),
+                "stop_loss": st.column_config.NumberColumn("Stop", format="%.6f"),
+                "target": st.column_config.NumberColumn("Target", format="%.6f"),
+                "score": st.column_config.NumberColumn("Score", format="%.1f"),
+                "confidence": st.column_config.NumberColumn("Confidence", format="%.2f"),
+            },
+        )
+    else:
+        st.caption("No active setup lifecycle rows yet.")
+
     st.subheader("Recent Signal History")
     rows = coach.journal.recent_theses(20)
     if not rows:
@@ -727,6 +755,8 @@ def _scan_cache_key(settings: Settings) -> tuple:
         bool(settings.coinalyze_api_key),
         settings.telegram_min_signal,
         getattr(settings, "min_alert_grade", "B"),
+        getattr(settings, "require_watch_before_enter", False),
+        getattr(settings, "active_setup_ttl_minutes", 240),
         settings.scan_workers,
         settings.prefilter_candle_limit,
     )

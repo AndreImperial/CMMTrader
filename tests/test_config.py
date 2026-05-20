@@ -24,6 +24,8 @@ class SettingsTests(unittest.TestCase):
             "MIN_ALERT_GRADE",
             "BACKTEST_LIMIT",
             "DASHBOARD_URL",
+            "REQUIRE_WATCH_BEFORE_ENTER",
+            "ACTIVE_SETUP_TTL_MINUTES",
         ]:
             os.environ.pop(name, None)
         os.environ["DISCOVERY_LIMIT"] = "100"
@@ -45,6 +47,8 @@ class SettingsTests(unittest.TestCase):
             "MIN_ALERT_GRADE",
             "BACKTEST_LIMIT",
             "DASHBOARD_URL",
+            "REQUIRE_WATCH_BEFORE_ENTER",
+            "ACTIVE_SETUP_TTL_MINUTES",
         ]:
             os.environ.pop(name, None)
 
@@ -71,6 +75,8 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.telegram_min_signal, "watch")
         self.assertEqual(settings.min_alert_grade, "B")
         self.assertEqual(settings.backtest_limit, 25)
+        self.assertFalse(settings.require_watch_before_enter)
+        self.assertEqual(settings.active_setup_ttl_minutes, 240)
 
 
 if __name__ == "__main__":
