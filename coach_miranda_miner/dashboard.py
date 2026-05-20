@@ -206,6 +206,7 @@ def render_scan(
         st.caption(warning)
 
     render_prefilter(scores)
+    render_short_candidates(results)
     if show_oi:
         render_high_oi_from_scores(scores)
     render_deep_scan(results, use_tradingview)
@@ -360,6 +361,39 @@ def render_deep_scan(results, use_tradingview: bool) -> None:
                         st.warning(reason)
 
 
+def render_short_candidates(results) -> None:
+    short_rows = [
+        {
+            "rank": result.score.rank,
+            "symbol": result.candidate.route_symbol,
+            "setup": result.thesis.setup.value,
+            "signal": result.thesis.signal.value,
+            "confidence": result.thesis.confidence,
+            "entry": result.thesis.entry,
+            "stop": result.thesis.stop_loss,
+            "target_1": result.thesis.targets[0] if result.thesis.targets else None,
+            "grade": alert_grade(result.thesis, result.validation, result.score),
+        }
+        for result in results
+        if result.thesis.direction == "short"
+    ]
+    st.subheader("Short Candidates")
+    if not short_rows:
+        st.caption("No short setups in the latest deep scan.")
+        return
+    st.dataframe(
+        pd.DataFrame(short_rows),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "confidence": st.column_config.NumberColumn("Confidence", format="%.2f"),
+            "entry": st.column_config.NumberColumn("Entry", format="%.6f"),
+            "stop": st.column_config.NumberColumn("Stop", format="%.6f"),
+            "target_1": st.column_config.NumberColumn("Target 1", format="%.6f"),
+        },
+    )
+
+
 def render_high_oi(coach: CoachMirandaMiner) -> None:
     st.subheader("High OI + Volume")
     rows, warnings = coach.high_oi_watchlist()
@@ -450,8 +484,15 @@ def render_history(coach: CoachMirandaMiner) -> None:
         else []
     )
     if active_rows:
+        active_frame = pd.DataFrame(active_rows)
+        st.download_button(
+            "Download Active Setups CSV",
+            active_frame.to_csv(index=False),
+            file_name="active_setups.csv",
+            mime="text/csv",
+        )
         st.dataframe(
-            pd.DataFrame(active_rows),
+            active_frame,
             use_container_width=True,
             hide_index=True,
             column_config={
@@ -501,6 +542,12 @@ def render_history(coach: CoachMirandaMiner) -> None:
             for row in alerts
         ]
     )
+    st.download_button(
+        "Download Alerts CSV",
+        alert_frame.to_csv(index=False),
+        file_name="telegram_alerts.csv",
+        mime="text/csv",
+    )
     st.dataframe(alert_frame, use_container_width=True, hide_index=True)
 
 
@@ -511,6 +558,12 @@ def render_calibration(coach: CoachMirandaMiner) -> None:
         st.caption("No setup score history yet.")
         return
     frame = pd.DataFrame(rows)
+    st.download_button(
+        "Download Setup Calibration CSV",
+        frame.to_csv(index=False),
+        file_name="setup_calibration.csv",
+        mime="text/csv",
+    )
     st.dataframe(
         frame,
         use_container_width=True,
@@ -533,8 +586,15 @@ def render_outcomes(coach: CoachMirandaMiner) -> None:
 
     summary = coach.journal.outcome_summary(500)
     if summary:
+        summary_frame = pd.DataFrame(summary)
+        st.download_button(
+            "Download Outcome Summary CSV",
+            summary_frame.to_csv(index=False),
+            file_name="outcome_summary.csv",
+            mime="text/csv",
+        )
         st.dataframe(
-            pd.DataFrame(summary),
+            summary_frame,
             use_container_width=True,
             hide_index=True,
             column_config={
@@ -547,8 +607,15 @@ def render_outcomes(coach: CoachMirandaMiner) -> None:
     if not rows:
         st.caption("No tracked signal outcomes yet.")
         return
+    outcome_frame = pd.DataFrame(rows)
+    st.download_button(
+        "Download Recent Outcomes CSV",
+        outcome_frame.to_csv(index=False),
+        file_name="recent_outcomes.csv",
+        mime="text/csv",
+    )
     st.dataframe(
-        pd.DataFrame(rows),
+        outcome_frame,
         use_container_width=True,
         hide_index=True,
         column_config={
@@ -560,6 +627,21 @@ def render_outcomes(coach: CoachMirandaMiner) -> None:
             "return_pct": st.column_config.NumberColumn("Return", format="%.2f%%"),
         },
     )
+    candle_rows = (
+        coach.journal.recent_candle_samples(50)
+        if hasattr(coach.journal, "recent_candle_samples")
+        else []
+    )
+    if candle_rows:
+        st.subheader("Historical Candle Samples")
+        candle_frame = pd.DataFrame(candle_rows)
+        st.download_button(
+            "Download Candle Sample Log CSV",
+            candle_frame.to_csv(index=False),
+            file_name="candle_samples.csv",
+            mime="text/csv",
+        )
+        st.dataframe(candle_frame, use_container_width=True, hide_index=True)
 
 
 def render_backtest(coach: CoachMirandaMiner) -> None:
@@ -577,8 +659,49 @@ def render_backtest(coach: CoachMirandaMiner) -> None:
     left_action, right_action = st.columns(2)
     run_single = left_action.button("Run Backtest", type="primary", use_container_width=True)
     run_batch = right_action.button("Run Batch Top Coins", use_container_width=True)
-    if not run_single and not run_batch:
+    run_walk = st.button("Run Walk-Forward Test", use_container_width=True)
+    if not run_single and not run_batch and not run_walk:
         st.caption("Backtests use the configured data source and candle limit.")
+        return
+
+    if run_walk:
+        with st.spinner("Running walk-forward validation..."):
+            try:
+                result = coach.walk_forward_backtest(symbol, timeframe, strategy, side)
+            except Exception as exc:
+                st.error("Walk-forward test failed.")
+                st.code(str(exc))
+                return
+        rows = [
+            {
+                "segment": "train",
+                "trades": result["train"].trades,
+                "win_rate": result["train"].win_rate,
+                "expectancy_pct": result["train"].expectancy_pct,
+                "return_pct": result["train"].total_return_pct,
+                "drawdown_pct": result["train"].max_drawdown_pct,
+            },
+            {
+                "segment": "test",
+                "trades": result["test"].trades,
+                "win_rate": result["test"].win_rate,
+                "expectancy_pct": result["test"].expectancy_pct,
+                "return_pct": result["test"].total_return_pct,
+                "drawdown_pct": result["test"].max_drawdown_pct,
+            },
+        ]
+        st.metric("Expectancy Degradation", f"{result['degradation_pct']:.2f}%")
+        st.dataframe(
+            pd.DataFrame(rows),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "win_rate": st.column_config.NumberColumn("Win Rate", format="%.1%%"),
+                "expectancy_pct": st.column_config.NumberColumn("Expectancy", format="%.2f%%"),
+                "return_pct": st.column_config.NumberColumn("Return", format="%.2f%%"),
+                "drawdown_pct": st.column_config.NumberColumn("Drawdown", format="%.2f%%"),
+            },
+        )
         return
 
     if run_batch:

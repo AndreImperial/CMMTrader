@@ -26,6 +26,7 @@ class SettingsTests(unittest.TestCase):
             "DASHBOARD_URL",
             "REQUIRE_WATCH_BEFORE_ENTER",
             "ACTIVE_SETUP_TTL_MINUTES",
+            "MAX_ATR_PCT",
         ]:
             os.environ.pop(name, None)
         os.environ["DISCOVERY_LIMIT"] = "100"
@@ -49,6 +50,7 @@ class SettingsTests(unittest.TestCase):
             "DASHBOARD_URL",
             "REQUIRE_WATCH_BEFORE_ENTER",
             "ACTIVE_SETUP_TTL_MINUTES",
+            "MAX_ATR_PCT",
         ]:
             os.environ.pop(name, None)
 
@@ -77,6 +79,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.backtest_limit, 25)
         self.assertFalse(settings.require_watch_before_enter)
         self.assertEqual(settings.active_setup_ttl_minutes, 240)
+        self.assertEqual(settings.max_atr_pct, 8)
 
 
 if __name__ == "__main__":

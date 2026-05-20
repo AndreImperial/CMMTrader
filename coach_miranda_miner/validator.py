@@ -9,10 +9,12 @@ class ThesisValidator:
         min_risk_reward: float,
         min_confidence: float,
         max_stop_atr_multiple: float,
+        max_atr_pct: float = 8.0,
     ) -> None:
         self.min_risk_reward = min_risk_reward
         self.min_confidence = min_confidence
         self.max_stop_atr_multiple = max_stop_atr_multiple
+        self.max_atr_pct = max_atr_pct
 
     def validate(
         self,
@@ -33,6 +35,11 @@ class ThesisValidator:
 
         if thesis.confidence < self.min_confidence and thesis.signal == SignalState.ENTER:
             reasons.append(f"Confidence below minimum {self.min_confidence:.2f}.")
+
+        if thesis.entry is not None and atr is not None and atr > 0:
+            atr_pct = (atr / thesis.entry) * 100
+            if atr_pct > self.max_atr_pct:
+                reasons.append(f"Volatility too high: ATR is {atr_pct:.2f}% of entry.")
 
         if thesis.direction == "long" and thesis.entry is not None and thesis.stop_loss is not None:
             if thesis.stop_loss >= thesis.entry:

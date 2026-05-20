@@ -30,6 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--timeframe", default="15m")
     batch.add_argument("--strategy", choices=["miranda", "ma"], default="miranda")
     batch.add_argument("--side", choices=["both", "long", "short"], default="both")
+    walk = subparsers.add_parser("walk-forward", help="Run train/test walk-forward validation")
+    walk.add_argument("--symbol", default=None)
+    walk.add_argument("--timeframe", default=None)
+    walk.add_argument("--strategy", choices=["miranda", "ma"], default="miranda")
+    walk.add_argument("--side", choices=["both", "long", "short"], default="both")
     return parser
 
 
@@ -59,6 +64,18 @@ def main() -> None:
                 f"PF {row['profit_factor']:.2f} | L/S {row['long_trades']}/{row['short_trades']} | "
                 f"best setup {row.get('best_setup') or 'n/a'}"
             )
+    if args.command == "walk-forward":
+        result = coach.walk_forward_backtest(args.symbol, args.timeframe, args.strategy, args.side)
+        print(f"Walk-forward {result['symbol']} {result['timeframe']}")
+        print(
+            f"Train: trades {result['train'].trades} | expectancy "
+            f"{result['train_expectancy_pct']:.2f}% | return {result['train'].total_return_pct:.2f}%"
+        )
+        print(
+            f"Test: trades {result['test'].trades} | expectancy "
+            f"{result['test_expectancy_pct']:.2f}% | return {result['test'].total_return_pct:.2f}%"
+        )
+        print(f"Expectancy degradation: {result['degradation_pct']:.2f}%")
     if args.command == "doctor":
         print(coach.doctor())
     if args.command == "oi":

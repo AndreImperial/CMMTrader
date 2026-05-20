@@ -123,6 +123,7 @@ class CoachMirandaMiner:
             settings.min_risk_reward,
             settings.min_confidence,
             settings.max_stop_atr_multiple,
+            settings.max_atr_pct,
         )
         self.alerts = AlertFormatter()
         self.telegram = TelegramAlerter(
@@ -358,8 +359,28 @@ class CoachMirandaMiner:
             oi_change_24h_pct=score.oi_change_24h_pct,
             relative_volume=score.relative_volume,
         )
+        self._record_invalidation(result)
         self._record_outcome_seeds(result)
         self._record_active_setup(result)
+
+    def _record_invalidation(self, result: DeepScanResult) -> None:
+        thesis = result.thesis
+        if thesis.signal != SignalState.REJECT:
+            return
+        if not hasattr(self.journal, "invalidate_active_setup"):
+            return
+        direction = "short" if any("short" in item.lower() for item in thesis.evidence) else "long"
+        setup = thesis.setup.value if thesis.setup.value != "none" else "tabo"
+        reason = thesis.invalidation_reason or "invalidated"
+        invalidated = self.journal.invalidate_active_setup(thesis.symbol, setup, direction, reason)
+        if invalidated and self.telegram.configured:
+            try:
+                self.telegram.send(
+                    f"Coach Miranda Alert\nINVALIDATED {direction.upper()}\n"
+                    f"Symbol: {thesis.symbol}\nReason: {reason}"
+                )
+            except requests.RequestException:
+                return
 
     def _record_active_setup(self, result: DeepScanResult) -> None:
         if not hasattr(self.journal, "record_active_setup"):
@@ -737,6 +758,7 @@ class CoachMirandaMiner:
             route_timeframe,
             self.settings.candle_limit,
         )
+        self._record_candle_sample(route_symbol, route_timeframe, candles, source=self.settings.data_mode)
         if strategy == "miranda":
             allow_longs = side in {"both", "long"}
             allow_shorts = side in {"both", "short"}
@@ -756,6 +778,81 @@ class CoachMirandaMiner:
             )
             return tester.run(route_symbol, route_timeframe, candles)
         return self.backtester.run(route_symbol, route_timeframe, candles)
+
+    def walk_forward_backtest(
+        self,
+        symbol: str | None = None,
+        timeframe: str | None = None,
+        strategy: str = "miranda",
+        side: str = "both",
+    ) -> dict:
+        route_symbol = symbol or self.settings.symbol
+        route_timeframe = timeframe or self.settings.timeframe
+        base = route_symbol.split("/")[0]
+        route = self.router.first_available_route(base, self.settings.quote_currency)
+        exchange_id = self.settings.exchange_id
+        if route is not None:
+            exchange_id, route_symbol = route
+        candles = self.router.fetch_candles(
+            exchange_id,
+            route_symbol,
+            route_timeframe,
+            self.settings.candle_limit,
+        )
+        self._record_candle_sample(route_symbol, route_timeframe, candles, source=self.settings.data_mode)
+        split = max(80, int(len(candles) * 0.6))
+        if split >= len(candles) - 20:
+            split = max(1, len(candles) // 2)
+        train = self._run_backtest_on_frame(route_symbol, route_timeframe, strategy, side, candles.iloc[:split])
+        test = self._run_backtest_on_frame(route_symbol, route_timeframe, strategy, side, candles.iloc[split:])
+        return {
+            "symbol": route_symbol,
+            "timeframe": route_timeframe,
+            "train": train,
+            "test": test,
+            "train_expectancy_pct": train.expectancy_pct,
+            "test_expectancy_pct": test.expectancy_pct,
+            "degradation_pct": test.expectancy_pct - train.expectancy_pct,
+        }
+
+    def _run_backtest_on_frame(
+        self,
+        symbol: str,
+        timeframe: str,
+        strategy: str,
+        side: str,
+        candles: pd.DataFrame,
+    ) -> BacktestResult:
+        if strategy == "miranda":
+            return MirandaStrategyBacktester(
+                StrategyBacktestConfig(
+                    fee_bps=self.settings.backtest_fee_bps,
+                    slippage_bps=self.settings.backtest_slippage_bps,
+                    stop_atr_multiple=self.settings.backtest_stop_atr_multiple,
+                    target_r_multiple=max(
+                        self.settings.backtest_target_r_multiple,
+                        self.settings.min_risk_reward,
+                    ),
+                    allow_longs=side in {"both", "long"},
+                    allow_shorts=side in {"both", "short"},
+                    min_risk_reward=self.settings.min_risk_reward,
+                )
+            ).run(symbol, timeframe, candles)
+        return self.backtester.run(symbol, timeframe, candles)
+
+    def _record_candle_sample(
+        self,
+        symbol: str,
+        timeframe: str,
+        candles: pd.DataFrame,
+        source: str,
+    ) -> None:
+        if not hasattr(self.journal, "record_candle_sample"):
+            return
+        try:
+            self.journal.record_candle_sample(symbol, timeframe, candles, source)
+        except (ValueError, TypeError, AttributeError):
+            return
 
     def batch_backtest(
         self,

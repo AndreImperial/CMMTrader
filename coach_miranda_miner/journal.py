@@ -5,6 +5,8 @@ from datetime import timedelta
 import json
 import sqlite3
 
+import pandas as pd
+
 
 class Journal:
     def __init__(self, db_path: str) -> None:
@@ -132,6 +134,20 @@ class Journal:
                     score REAL,
                     confidence REAL,
                     expires_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS candle_samples (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    candle_count INTEGER NOT NULL,
+                    first_timestamp TEXT,
+                    last_timestamp TEXT
                 )
                 """
             )
@@ -469,6 +485,38 @@ class Journal:
             )
             return cursor.rowcount
 
+    def invalidate_active_setup(
+        self,
+        symbol: str,
+        setup: str,
+        direction: str,
+        reason: str,
+    ) -> bool:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id
+                FROM active_setups
+                WHERE symbol = ? AND setup = ? AND direction = ?
+                  AND status IN ('watch', 'confirmed')
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (symbol, setup, direction),
+            ).fetchone()
+            if row is None:
+                return False
+            conn.execute(
+                """
+                UPDATE active_setups
+                SET status = 'invalidated', updated_at = ?, grade = ?
+                WHERE id = ?
+                """,
+                (now, reason[:24] or "invalidated", row[0]),
+            )
+            return True
+
     def recent_active_setups(self, limit: int = 50) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -713,6 +761,62 @@ class Journal:
                 "approved_count": row[5],
                 "avg_relative_volume": row[6],
                 "avg_oi_change_24h_pct": row[7],
+            }
+            for row in rows
+        ]
+
+    def record_candle_sample(
+        self,
+        symbol: str,
+        timeframe: str,
+        candles: pd.DataFrame,
+        source: str,
+    ) -> None:
+        first_timestamp = None
+        last_timestamp = None
+        if not candles.empty and "timestamp" in candles:
+            first_timestamp = str(candles.iloc[0]["timestamp"])
+            last_timestamp = str(candles.iloc[-1]["timestamp"])
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO candle_samples (
+                    created_at, symbol, timeframe, source, candle_count,
+                    first_timestamp, last_timestamp
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    datetime.now(timezone.utc).isoformat(),
+                    symbol,
+                    timeframe,
+                    source,
+                    len(candles),
+                    first_timestamp,
+                    last_timestamp,
+                ),
+            )
+
+    def recent_candle_samples(self, limit: int = 50) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT created_at, symbol, timeframe, source, candle_count,
+                       first_timestamp, last_timestamp
+                FROM candle_samples
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "created_at": row[0],
+                "symbol": row[1],
+                "timeframe": row[2],
+                "source": row[3],
+                "candle_count": row[4],
+                "first_timestamp": row[5],
+                "last_timestamp": row[6],
             }
             for row in rows
         ]

@@ -52,6 +52,7 @@ class Settings:
     min_risk_reward: float
     min_confidence: float
     max_stop_atr_multiple: float
+    max_atr_pct: float
     backtest_fee_bps: float
     backtest_slippage_bps: float
     backtest_stop_atr_multiple: float
@@ -120,6 +121,7 @@ class Settings:
             min_risk_reward=float(os.getenv("MIN_RISK_REWARD", "2.0")),
             min_confidence=float(os.getenv("MIN_CONFIDENCE", "0.72")),
             max_stop_atr_multiple=float(os.getenv("MAX_STOP_ATR_MULTIPLE", "3")),
+            max_atr_pct=float(os.getenv("MAX_ATR_PCT", "8")),
             backtest_fee_bps=float(os.getenv("BACKTEST_FEE_BPS", "10")),
             backtest_slippage_bps=float(os.getenv("BACKTEST_SLIPPAGE_BPS", "5")),
             backtest_stop_atr_multiple=float(os.getenv("BACKTEST_STOP_ATR_MULTIPLE", "1.5")),
