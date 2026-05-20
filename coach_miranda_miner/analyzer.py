@@ -23,6 +23,7 @@ class RuleBasedAnalyzer(Analyzer):
         tf_4h = by_timeframe.get("4h") or tf_1h
         candles_15m = pack.candles.get("15m", [])
         candles_1h = pack.candles.get("1h", [])
+        candles_4h = pack.candles.get("4h", [])
 
         if not pack.market_regime.longs_allowed and not pack.market_regime.shorts_allowed:
             return TradeThesis(
@@ -37,10 +38,18 @@ class RuleBasedAnalyzer(Analyzer):
 
         prison = _prison_break_state(candles_15m)
         short_prison = _short_prison_break_state(candles_15m)
-        volume_confirmed = (tf_15m.relative_volume or 0.0) >= 1.25
+        relative_volume = tf_15m.relative_volume or 0.0
+        volume_confirmed = relative_volume >= 1.35
+        breakout_volume_confirmed = relative_volume >= 1.55
         compression = _compression_ratio(candles_15m)
         support = _support_zone(candles_1h or candles_15m)
         resistance = _resistance_zone(candles_1h or candles_15m)
+        trend_1h = _trend_bias(candles_1h)
+        trend_4h = _trend_bias(candles_4h)
+        long_trend_ok = trend_1h != "down" and trend_4h != "down"
+        short_trend_ok = trend_1h != "up" and trend_4h != "up"
+        long_continuation_ok = trend_1h == "up" and trend_4h != "down"
+        short_continuation_ok = trend_1h == "down" and trend_4h != "up"
         macd_bullish = (
             tf_1h.macd is not None
             and tf_1h.macd_signal is not None
@@ -51,53 +60,67 @@ class RuleBasedAnalyzer(Analyzer):
             and tf_1h.macd_signal is not None
             and tf_1h.macd < tf_1h.macd_signal
         )
-        rsi_ok = tf_15m.rsi is not None and 35 <= tf_15m.rsi <= 68
-        short_rsi_ok = tf_15m.rsi is not None and 32 <= tf_15m.rsi <= 65
+        rsi_ok = tf_15m.rsi is not None and 38 <= tf_15m.rsi <= 66
+        short_rsi_ok = tf_15m.rsi is not None and 34 <= tf_15m.rsi <= 62
+        long_overextended = tf_15m.rsi is not None and tf_15m.rsi > 74
+        short_overextended = tf_15m.rsi is not None and tf_15m.rsi < 26
 
-        if pack.market_regime.longs_allowed and _transition_play(tf_15m, tf_1h):
+        if pack.market_regime.longs_allowed and not long_overextended and long_trend_ok and _transition_play(tf_15m, tf_1h):
             return _long_thesis(
                 pack,
                 Setup.TRANSITION_PLAY,
                 prison,
-                confidence=_confidence(0.58, prison, volume_confirmed, compression, macd_bullish),
+                confidence=_confidence(0.58, prison, volume_confirmed, compression, macd_bullish, long_trend_ok),
                 evidence=[
                     "RSI is recovering from a weak zone.",
                     "1h MACD momentum supports reversal conditions.",
+                    _trend_evidence(trend_1h, trend_4h),
                     f"15m prison-break state is {prison.value}.",
                 ],
             )
 
         if (
             pack.market_regime.shorts_allowed
+            and not short_overextended
+            and short_trend_ok
             and _short_transition_play(tf_15m, tf_1h)
         ):
             return _short_thesis(
                 pack,
                 Setup.TRANSITION_PLAY,
                 short_prison,
-                confidence=_confidence(0.58, short_prison, volume_confirmed, compression, macd_bearish),
+                confidence=_confidence(0.58, short_prison, volume_confirmed, compression, macd_bearish, short_trend_ok),
                 evidence=[
                     "RSI is rolling over from a strong zone.",
                     "1h MACD momentum supports bearish reversal conditions.",
+                    _trend_evidence(trend_1h, trend_4h),
                     f"15m short prison-break state is {short_prison.value}.",
                 ],
             )
 
-        if pack.market_regime.longs_allowed and support and _is_bounce(candles_15m, support) and rsi_ok:
+        if (
+            pack.market_regime.longs_allowed
+            and long_trend_ok
+            and support
+            and _is_bounce(candles_15m, support)
+            and rsi_ok
+        ):
             return _long_thesis(
                 pack,
                 Setup.BOUNCE,
                 prison,
-                confidence=_confidence(0.58, prison, volume_confirmed, compression, macd_bullish),
+                confidence=_confidence(0.58, prison, volume_confirmed, compression, macd_bullish, long_trend_ok),
                 evidence=[
                     f"Support zone has {support['touches']} wick touches.",
                     "Latest candles show rejection near support.",
+                    _trend_evidence(trend_1h, trend_4h),
                     f"15m RSI is {tf_15m.rsi:.2f}.",
                 ],
             )
 
         if (
             pack.market_regime.shorts_allowed
+            and short_trend_ok
             and resistance
             and _is_resistance_rejection(candles_15m, resistance)
             and short_rsi_ok
@@ -106,58 +129,67 @@ class RuleBasedAnalyzer(Analyzer):
                 pack,
                 Setup.BOUNCE,
                 short_prison,
-                confidence=_confidence(0.58, short_prison, volume_confirmed, compression, macd_bearish),
+                confidence=_confidence(0.58, short_prison, volume_confirmed, compression, macd_bearish, short_trend_ok),
                 evidence=[
                     f"Resistance zone has {resistance['touches']} wick touches.",
                     "Latest candles show rejection near resistance.",
+                    _trend_evidence(trend_1h, trend_4h),
                     f"15m RSI is {tf_15m.rsi:.2f}.",
                 ],
             )
 
         if (
             pack.market_regime.longs_allowed
+            and long_continuation_ok
+            and not long_overextended
             and compression < 0.7
             and prison in {SignalState.WATCH, SignalState.ENTER}
         ):
             evidence = [
                 f"15m range compression ratio is {compression:.2f}.",
                 f"15m prison-break state is {prison.value}.",
+                _trend_evidence(trend_1h, trend_4h),
             ]
-            if volume_confirmed:
+            if breakout_volume_confirmed:
                 evidence.append("Relative volume confirms breakout.")
             else:
                 evidence.append("Volume confirmation is not strong enough for ENTER.")
             return _long_thesis(
                 pack,
                 Setup.APEX_SQUEEZE,
-                prison if volume_confirmed else SignalState.WATCH,
-                confidence=_confidence(0.62, prison, volume_confirmed, compression, macd_bullish),
+                prison if breakout_volume_confirmed else SignalState.WATCH,
+                confidence=_confidence(0.62, prison, breakout_volume_confirmed, compression, macd_bullish, long_continuation_ok),
                 evidence=evidence,
             )
 
         if (
             pack.market_regime.shorts_allowed
+            and short_continuation_ok
+            and not short_overextended
             and compression < 0.7
             and short_prison in {SignalState.WATCH, SignalState.ENTER}
         ):
             evidence = [
                 f"15m range compression ratio is {compression:.2f}.",
                 f"15m short prison-break state is {short_prison.value}.",
+                _trend_evidence(trend_1h, trend_4h),
             ]
-            if volume_confirmed:
+            if breakout_volume_confirmed:
                 evidence.append("Relative volume confirms bearish breakdown.")
             else:
                 evidence.append("Volume confirmation is not strong enough for ENTER.")
             return _short_thesis(
                 pack,
                 Setup.APEX_SQUEEZE,
-                short_prison if volume_confirmed else SignalState.WATCH,
-                confidence=_confidence(0.62, short_prison, volume_confirmed, compression, macd_bearish),
+                short_prison if breakout_volume_confirmed else SignalState.WATCH,
+                confidence=_confidence(0.62, short_prison, breakout_volume_confirmed, compression, macd_bearish, short_continuation_ok),
                 evidence=evidence,
             )
 
         if (
             pack.market_regime.longs_allowed
+            and long_continuation_ok
+            and not long_overextended
             and rsi_ok
             and macd_bullish
             and (tf_4h.rsi is None or tf_4h.rsi < 72)
@@ -166,11 +198,12 @@ class RuleBasedAnalyzer(Analyzer):
             return _long_thesis(
                 pack,
                 Setup.TABO,
-                prison,
-                confidence=_confidence(0.56, prison, volume_confirmed, compression, macd_bullish),
+                prison if volume_confirmed else SignalState.WATCH,
+                confidence=_confidence(0.56, prison, volume_confirmed, compression, macd_bullish, long_continuation_ok),
                 evidence=[
                     "1h MACD is above signal.",
                     "15m RSI is in a tradable continuation range.",
+                    _trend_evidence(trend_1h, trend_4h),
                     f"Nearby resistance zone has {resistance['touches']} wick touches.",
                     f"15m prison-break state is {prison.value}.",
                 ],
@@ -178,6 +211,8 @@ class RuleBasedAnalyzer(Analyzer):
 
         if (
             pack.market_regime.shorts_allowed
+            and short_continuation_ok
+            and not short_overextended
             and short_rsi_ok
             and macd_bearish
             and (tf_4h.rsi is None or tf_4h.rsi > 28)
@@ -186,11 +221,12 @@ class RuleBasedAnalyzer(Analyzer):
             return _short_thesis(
                 pack,
                 Setup.TABO,
-                short_prison,
-                confidence=_confidence(0.56, short_prison, volume_confirmed, compression, macd_bearish),
+                short_prison if volume_confirmed else SignalState.WATCH,
+                confidence=_confidence(0.56, short_prison, volume_confirmed, compression, macd_bearish, short_continuation_ok),
                 evidence=[
                     "1h MACD is below signal.",
                     "15m RSI is in a tradable bearish continuation range.",
+                    _trend_evidence(trend_1h, trend_4h),
                     f"Nearby support zone has {support['touches']} wick touches.",
                     f"15m short prison-break state is {short_prison.value}.",
                 ],
@@ -203,7 +239,10 @@ class RuleBasedAnalyzer(Analyzer):
             direction="none",
             confidence=0.35,
             invalidation_reason="No deterministic setup passed the current filters.",
-            evidence=["Momentum and entry timing are not aligned."],
+            evidence=[
+                "Momentum, trend, volume, and entry timing are not aligned.",
+                _trend_evidence(trend_1h, trend_4h),
+            ],
         )
 
 
@@ -493,12 +532,32 @@ def _short_transition_play(tf_15m, tf_1h) -> bool:
     return 55 <= tf_15m.rsi <= 70 and tf_1h.macd < tf_1h.macd_signal
 
 
+def _trend_bias(candles: list[CandleSnapshot]) -> str:
+    if len(candles) < 55:
+        return "neutral"
+    closes = [item.close for item in candles]
+    ma_20 = sum(closes[-20:]) / 20
+    ma_50 = sum(closes[-50:]) / 50
+    last = closes[-1]
+    slope_20 = ma_20 - (sum(closes[-25:-5]) / 20)
+    if last > ma_20 > ma_50 and slope_20 > 0:
+        return "up"
+    if last < ma_20 < ma_50 and slope_20 < 0:
+        return "down"
+    return "neutral"
+
+
+def _trend_evidence(trend_1h: str, trend_4h: str) -> str:
+    return f"Trend filter: 1h is {trend_1h}, 4h is {trend_4h}."
+
+
 def _confidence(
     base: float,
     prison: SignalState,
     volume_confirmed: bool,
     compression: float,
     macd_bullish: bool,
+    trend_aligned: bool,
 ) -> float:
     score = base
     if prison == SignalState.WATCH:
@@ -511,6 +570,10 @@ def _confidence(
         score += 0.05
     if macd_bullish:
         score += 0.04
+    if trend_aligned:
+        score += 0.05
+    else:
+        score -= 0.08
     if prison == SignalState.REJECT:
         score -= 0.18
     return max(0.0, min(score, 0.92))

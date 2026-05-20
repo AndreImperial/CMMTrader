@@ -294,7 +294,7 @@ class MirandaStrategyBacktester:
         row = frame.iloc[index]
         if float(row["ema_20"]) <= float(row["ema_50"]):
             return None
-        if not (35 <= float(row["rsi"]) <= 97):
+        if not (35 <= float(row["rsi"]) <= 99):
             return None
         if float(row["macd"]) <= float(row["macd_signal"]):
             return None
@@ -307,7 +307,7 @@ class MirandaStrategyBacktester:
         row = frame.iloc[index]
         if float(row["ema_20"]) >= float(row["ema_50"]):
             return None
-        if not (3 <= float(row["rsi"]) <= 65):
+        if not (1 <= float(row["rsi"]) <= 65):
             return None
         if float(row["macd"]) >= float(row["macd_signal"]):
             return None
