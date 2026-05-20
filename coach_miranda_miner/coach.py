@@ -799,6 +799,7 @@ class CoachMirandaMiner:
                         "expectancy_pct": result.expectancy_pct,
                         "long_trades": result.long_trades,
                         "short_trades": result.short_trades,
+                        "best_setup": _best_setup_name(result.setup_stats),
                     }
                 )
         return sorted(
@@ -903,6 +904,19 @@ def _setup_score(
 
 def _elapsed(started_at: float) -> float:
     return round(time.perf_counter() - started_at, 2)
+
+
+def _best_setup_name(setup_stats: dict[str, dict]) -> str | None:
+    if not setup_stats:
+        return None
+    setup, _ = max(
+        setup_stats.items(),
+        key=lambda item: (
+            item[1].get("expectancy_pct", 0.0),
+            item[1].get("trades", 0),
+        ),
+    )
+    return setup
 
 
 def _resolve_outcome(

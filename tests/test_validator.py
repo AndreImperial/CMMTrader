@@ -99,6 +99,24 @@ class ThesisValidatorTests(unittest.TestCase):
         result = self.validator.validate(thesis, self.regime, atr=2.0)
         self.assertTrue(result.approved)
 
+    def test_enter_rejects_too_tight_atr_stop(self) -> None:
+        thesis = TradeThesis(
+            symbol="BTC/USDT",
+            setup=Setup.TABO,
+            signal=SignalState.ENTER,
+            direction="long",
+            confidence=0.75,
+            entry=100.0,
+            stop_loss=99.8,
+            targets=[101.0],
+            risk_reward=5.0,
+        )
+
+        result = self.validator.validate(thesis, self.regime, atr=2.0)
+
+        self.assertFalse(result.approved)
+        self.assertTrue(any("too tight versus ATR" in reason for reason in result.reasons))
+
 
 if __name__ == "__main__":
     unittest.main()

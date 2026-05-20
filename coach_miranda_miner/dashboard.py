@@ -622,6 +622,25 @@ def render_backtest(coach: CoachMirandaMiner) -> None:
     metrics[4].metric("Profit Factor", f"{result.profit_factor:.2f}")
     metrics[5].metric("Expectancy", f"{result.expectancy_pct:.2f}%")
     st.write(f"Longs: {result.long_trades} | Shorts: {result.short_trades}")
+    if result.setup_stats:
+        setup_rows = [
+            {"setup": setup, **stats}
+            for setup, stats in sorted(
+                result.setup_stats.items(),
+                key=lambda item: item[1].get("expectancy_pct", 0.0),
+                reverse=True,
+            )
+        ]
+        st.write("Setup Breakdown")
+        st.dataframe(
+            pd.DataFrame(setup_rows),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "win_rate": st.column_config.NumberColumn("Win Rate", format="%.1%%"),
+                "expectancy_pct": st.column_config.NumberColumn("Expectancy", format="%.2f%%"),
+            },
+        )
     if result.sample_trades:
         st.dataframe(pd.DataFrame(result.sample_trades), use_container_width=True, hide_index=True)
     st.code(result.format())

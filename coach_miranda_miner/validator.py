@@ -43,6 +43,11 @@ class ThesisValidator:
                     break
             if atr is not None and atr > 0:
                 stop_distance = thesis.entry - thesis.stop_loss
+                if stop_distance < atr * 0.25:
+                    reasons.append(
+                        "Stop distance is too tight versus ATR "
+                        f"({stop_distance / atr:.2f}x)."
+                    )
                 if stop_distance > atr * self.max_stop_atr_multiple:
                     reasons.append(
                         "Stop distance is too wide versus ATR "
@@ -57,6 +62,11 @@ class ThesisValidator:
                     break
             if atr is not None and atr > 0:
                 stop_distance = thesis.stop_loss - thesis.entry
+                if stop_distance < atr * 0.25:
+                    reasons.append(
+                        "Stop distance is too tight versus ATR "
+                        f"({stop_distance / atr:.2f}x)."
+                    )
                 if stop_distance > atr * self.max_stop_atr_multiple:
                     reasons.append(
                         "Stop distance is too wide versus ATR "

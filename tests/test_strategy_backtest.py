@@ -18,6 +18,7 @@ class StrategyBacktestTests(unittest.TestCase):
         self.assertGreater(result.trades, 0)
         self.assertGreater(result.long_trades, 0)
         self.assertEqual(result.short_trades, 0)
+        self.assertTrue(result.setup_stats)
 
     def test_miranda_backtest_can_take_short_trades(self) -> None:
         result = _tester(allow_longs=False, allow_shorts=True).run(
@@ -29,6 +30,7 @@ class StrategyBacktestTests(unittest.TestCase):
         self.assertGreater(result.trades, 0)
         self.assertGreater(result.short_trades, 0)
         self.assertEqual(result.long_trades, 0)
+        self.assertTrue(result.setup_stats)
 
 
 def _tester(allow_longs: bool, allow_shorts: bool) -> MirandaStrategyBacktester:

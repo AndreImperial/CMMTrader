@@ -24,6 +24,7 @@ class BacktestResult:
     long_trades: int = 0
     short_trades: int = 0
     sample_trades: list[dict] = field(default_factory=list)
+    setup_stats: dict[str, dict] = field(default_factory=dict)
 
     def format(self) -> str:
         samples = ""
@@ -36,6 +37,16 @@ class BacktestResult:
                     f"{trade['return_pct']:.2f}% via {trade['exit_reason']}"
                 )
             samples = "\nRecent sample trades:\n" + "\n".join(lines)
+        setup_lines = ""
+        if self.setup_stats:
+            lines = []
+            for setup, stats in sorted(self.setup_stats.items()):
+                lines.append(
+                    f"- {setup}: trades {stats['trades']} | win {stats['win_rate']:.2%} "
+                    f"| expectancy {stats['expectancy_pct']:.2f}% | "
+                    f"L/S {stats['long_trades']}/{stats['short_trades']}"
+                )
+            setup_lines = "\nSetup breakdown:\n" + "\n".join(lines)
         return (
             f"Backtest {self.symbol} {self.timeframe}\n"
             f"Trades: {self.trades} | Wins: {self.wins} | Losses: {self.losses} "
@@ -46,6 +57,7 @@ class BacktestResult:
             f"Profit factor: {self.profit_factor:.2f}\n"
             f"Expectancy: {self.expectancy_pct:.2f}% per trade\n"
             f"Avg win/loss: {self.average_win_pct:.2f}% / {self.average_loss_pct:.2f}%"
+            f"{setup_lines}"
             f"{samples}"
         )
 
@@ -200,6 +212,7 @@ class MirandaStrategyBacktester:
         frame["ema_50"] = frame["close"].ewm(span=50, adjust=False).mean()
 
         returns: list[float] = []
+        setup_returns: dict[str, list[tuple[float, str]]] = {}
         sample_trades: list[dict] = []
         equity = 1.0
         peak = 1.0
@@ -219,6 +232,7 @@ class MirandaStrategyBacktester:
             exit_index, exit_price, exit_reason = self._resolve_exit(frame, index + 1, signal)
             trade_return = self._trade_return(signal, exit_price)
             returns.append(trade_return)
+            setup_returns.setdefault(signal.setup, []).append((trade_return, signal.direction))
             equity *= max(0.0, 1 + trade_return)
             peak = max(peak, equity)
             drawdown = (peak - equity) / peak if peak else 0.0
@@ -269,6 +283,7 @@ class MirandaStrategyBacktester:
             long_trades=long_trades,
             short_trades=short_trades,
             sample_trades=sample_trades,
+            setup_stats=_setup_stats(setup_returns),
         )
 
     def _signal_at(self, frame: pd.DataFrame, index: int) -> _Signal | None:
@@ -405,3 +420,21 @@ def _compression_ratio_df(prior: pd.DataFrame, recent: pd.DataFrame) -> float:
     if prior_range <= 0:
         return 1.0
     return recent_range / prior_range
+
+
+def _setup_stats(setup_returns: dict[str, list[tuple[float, str]]]) -> dict[str, dict]:
+    stats: dict[str, dict] = {}
+    for setup, values in setup_returns.items():
+        returns = [item[0] for item in values]
+        trades = len(returns)
+        wins = sum(1 for value in returns if value > 0)
+        stats[setup] = {
+            "trades": trades,
+            "wins": wins,
+            "losses": trades - wins,
+            "win_rate": wins / trades if trades else 0.0,
+            "expectancy_pct": (sum(returns) / trades) * 100 if trades else 0.0,
+            "long_trades": sum(1 for _, direction in values if direction == "long"),
+            "short_trades": sum(1 for _, direction in values if direction == "short"),
+        }
+    return stats

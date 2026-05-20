@@ -56,7 +56,8 @@ def main() -> None:
             print(
                 f"{row['symbol']} | trades {row['trades']} | win {row['win_rate']:.1%} | "
                 f"return {row['return_pct']:.2f}% | expectancy {row['expectancy_pct']:.2f}% | "
-                f"PF {row['profit_factor']:.2f} | L/S {row['long_trades']}/{row['short_trades']}"
+                f"PF {row['profit_factor']:.2f} | L/S {row['long_trades']}/{row['short_trades']} | "
+                f"best setup {row.get('best_setup') or 'n/a'}"
             )
     if args.command == "doctor":
         print(coach.doctor())
