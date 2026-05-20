@@ -91,7 +91,7 @@ class RuleBasedAnalyzer(Analyzer):
                 short_prison,
                 confidence=_confidence(0.58, short_prison, volume_confirmed, compression, macd_bearish, short_trend_ok),
                 evidence=[
-                    "RSI is rolling over from a strong zone.",
+                    "Short transition: RSI is rolling over from a strong zone.",
                     "1h MACD momentum supports bearish reversal conditions.",
                     _trend_evidence(trend_1h, trend_4h),
                     f"15m short prison-break state is {short_prison.value}.",
@@ -132,7 +132,7 @@ class RuleBasedAnalyzer(Analyzer):
                 confidence=_confidence(0.58, short_prison, volume_confirmed, compression, macd_bearish, short_trend_ok),
                 evidence=[
                     f"Resistance zone has {resistance['touches']} wick touches.",
-                    "Latest candles show rejection near resistance.",
+                    "Short bounce: latest candles show rejection near resistance.",
                     _trend_evidence(trend_1h, trend_4h),
                     f"15m RSI is {tf_15m.rsi:.2f}.",
                 ],
@@ -172,6 +172,7 @@ class RuleBasedAnalyzer(Analyzer):
             evidence = [
                 f"15m range compression ratio is {compression:.2f}.",
                 f"15m short prison-break state is {short_prison.value}.",
+                "Short apex squeeze: price is threatening a downside breakdown.",
                 _trend_evidence(trend_1h, trend_4h),
             ]
             if breakout_volume_confirmed:
@@ -224,7 +225,7 @@ class RuleBasedAnalyzer(Analyzer):
                 short_prison if volume_confirmed else SignalState.WATCH,
                 confidence=_confidence(0.56, short_prison, volume_confirmed, compression, macd_bearish, short_continuation_ok),
                 evidence=[
-                    "1h MACD is below signal.",
+                    "Short TABO: 1h MACD is below signal.",
                     "15m RSI is in a tradable bearish continuation range.",
                     _trend_evidence(trend_1h, trend_4h),
                     f"Nearby support zone has {support['touches']} wick touches.",

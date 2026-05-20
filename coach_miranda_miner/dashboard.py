@@ -39,7 +39,7 @@ DATA_MODES = {
 }
 
 SIGNAL_PRIORITY = {"enter": 0, "watch": 1, "wait": 2, "reject": 3}
-TRADINGVIEW_HEIGHT = 620
+TRADINGVIEW_HEIGHT = 760
 
 
 def main() -> None:
@@ -273,6 +273,7 @@ def render_deep_scan(results, use_tradingview: bool) -> None:
                 "score": result.score.score,
                 "setup": result.thesis.setup.value,
                 "signal": result.thesis.signal.value,
+                "direction": result.thesis.direction,
                 "confidence": result.thesis.confidence,
                 "entry": result.thesis.entry,
                 "stop": result.thesis.stop_loss,
@@ -299,48 +300,50 @@ def render_deep_scan(results, use_tradingview: bool) -> None:
         thesis = result.thesis
         validation = result.validation
         with st.expander(
-            f"#{result.score.rank} {candidate.route_symbol} - {thesis.setup.value} / {thesis.signal.value}",
+            (
+                f"#{result.score.rank} {candidate.route_symbol} - "
+                f"{thesis.direction.upper()} {thesis.setup.value} / {thesis.signal.value}"
+            ),
             expanded=thesis.signal.value in {"watch", "enter"},
         ):
-            left, right = st.columns([2, 1])
-            with left:
-                timeframe = st.selectbox(
-                    "Chart timeframe",
-                    list(pack.candles.keys()),
-                    index=max(list(pack.candles.keys()).index("15m"), 0)
-                    if "15m" in pack.candles
-                    else 0,
-                    key=f"tf-{candidate.route_symbol}",
+            timeframe = st.selectbox(
+                "Chart timeframe",
+                list(pack.candles.keys()),
+                index=max(list(pack.candles.keys()).index("15m"), 0)
+                if "15m" in pack.candles
+                else 0,
+                key=f"tf-{candidate.route_symbol}",
+            )
+            if use_tradingview:
+                components.html(
+                    _tradingview_widget(candidate.route_symbol, timeframe),
+                    height=TRADINGVIEW_HEIGHT,
                 )
-                if use_tradingview:
-                    components.html(
-                        _tradingview_widget(candidate.route_symbol, timeframe),
-                        height=TRADINGVIEW_HEIGHT,
-                    )
-                    st.caption(
-                        "TradingView tools are available inside the chart. "
-                        "Scanner levels are shown in the right panel."
-                    )
-                else:
-                    st.plotly_chart(
-                        _candlestick(pack, timeframe, thesis),
-                        use_container_width=True,
-                        key=f"chart-{candidate.route_symbol}-{timeframe}",
-                    )
-            with right:
+                st.caption("TradingView tools are available inside the full-width chart.")
+            else:
+                st.plotly_chart(
+                    _candlestick(pack, timeframe, thesis),
+                    use_container_width=True,
+                    key=f"chart-{candidate.route_symbol}-{timeframe}",
+                )
+
+            st.divider()
+            detail_cols = st.columns(4)
+            with detail_cols[0]:
                 st.metric("Signal", thesis.signal.value.upper())
+                st.metric("Direction", thesis.direction.upper())
+            with detail_cols[1]:
                 st.metric("Confidence", f"{thesis.confidence:.0%}")
                 st.metric("Rank Score", f"{result.score.score:.1f}")
+            with detail_cols[2]:
                 st.metric("Risk/Reward", thesis.risk_reward or "n/a")
                 st.write("Entry", _fmt(thesis.entry))
+            with detail_cols[3]:
                 st.write("Stop", _fmt(thesis.stop_loss))
                 st.write("Targets", ", ".join(_fmt(item) for item in thesis.targets) or "n/a")
-                st.write("Validation")
-                if validation.approved:
-                    st.success("Approved")
-                else:
-                    for reason in validation.reasons:
-                        st.warning(reason)
+
+            detail_left, detail_right = st.columns(2)
+            with detail_left:
                 st.write("Evidence")
                 for reason in result.score.prefilter_reasons[:3]:
                     st.write(f"- {reason}")
@@ -348,6 +351,13 @@ def render_deep_scan(results, use_tradingview: bool) -> None:
                     st.write(f"- {item}")
                 if candidate.trading_link:
                     st.link_button("Open Trading Page", candidate.trading_link)
+            with detail_right:
+                st.write("Validation")
+                if validation.approved:
+                    st.success("Approved")
+                else:
+                    for reason in validation.reasons:
+                        st.warning(reason)
 
 
 def render_high_oi(coach: CoachMirandaMiner) -> None:
