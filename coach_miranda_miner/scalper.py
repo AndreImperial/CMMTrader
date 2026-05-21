@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import pandas as pd
 
@@ -32,6 +33,9 @@ class ScalpScanResult:
     thesis: TradeThesis
     validation: ValidationResult
     quality: ScalpQuality
+    scanned_at: datetime
+    execution_candle_time: datetime | None
+    latest_candle_time: datetime | None
     alert_sent: bool = False
 
 
@@ -87,6 +91,9 @@ class AlmaCciScalper:
             thesis=thesis,
             validation=validation,
             quality=quality,
+            scanned_at=datetime.now(timezone.utc),
+            execution_candle_time=_execution_candle_time(enriched["3m"], thesis.direction),
+            latest_candle_time=_last_timestamp(enriched["3m"]),
         )
 
     def _with_indicators(self, candles: pd.DataFrame) -> pd.DataFrame:
@@ -498,3 +505,30 @@ def _last_float(series: pd.Series) -> float | None:
     if value is None or pd.isna(value):
         return None
     return float(value)
+
+
+def _last_timestamp(candles: pd.DataFrame) -> datetime | None:
+    if candles.empty or "timestamp" not in candles:
+        return None
+    value = pd.to_datetime(candles.iloc[-1]["timestamp"], utc=True)
+    return value.to_pydatetime()
+
+
+def _execution_candle_time(candles: pd.DataFrame, direction: str) -> datetime | None:
+    if direction not in {"long", "short"} or len(candles) < 2:
+        return _last_timestamp(candles)
+    lookback = min(6, len(candles) - 1)
+    for index in range(len(candles) - 1, len(candles) - 1 - lookback, -1):
+        if index <= 0:
+            break
+        left_prev = candles["ema_9"].iloc[index - 1]
+        left_now = candles["ema_9"].iloc[index]
+        right_prev = candles["alma_20"].iloc[index - 1]
+        right_now = candles["alma_20"].iloc[index]
+        if not _valid(left_prev, left_now, right_prev, right_now):
+            continue
+        if direction == "long" and left_prev <= right_prev and left_now > right_now:
+            return pd.to_datetime(candles.iloc[index]["timestamp"], utc=True).to_pydatetime()
+        if direction == "short" and left_prev >= right_prev and left_now < right_now:
+            return pd.to_datetime(candles.iloc[index]["timestamp"], utc=True).to_pydatetime()
+    return _last_timestamp(candles)

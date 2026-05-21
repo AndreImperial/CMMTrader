@@ -403,6 +403,17 @@ class CoachMirandaMiner:
             "3m": self._scalp_candles(candidate, "3m"),
         }
         result = self.scalper.analyze(candidate, candles, rank, market_regime)
+        result.thesis.evidence.append(f"Scanned at {result.scanned_at.strftime('%Y-%m-%d %H:%M UTC')}.")
+        if result.execution_candle_time is not None:
+            age_minutes = max((result.scanned_at - result.execution_candle_time).total_seconds() / 60, 0)
+            result.thesis.evidence.append(
+                f"Execution candle {result.execution_candle_time.strftime('%Y-%m-%d %H:%M UTC')} "
+                f"({age_minutes:.0f} minutes old)."
+            )
+        if result.latest_candle_time is not None:
+            result.thesis.evidence.append(
+                f"Latest 3m candle {result.latest_candle_time.strftime('%Y-%m-%d %H:%M UTC')}."
+            )
         message = self.alerts.format(candidate, result.thesis, result.validation, result.score)
         alert_sent = self.maybe_send_telegram_alert(
             candidate,
@@ -418,6 +429,9 @@ class CoachMirandaMiner:
             thesis=result.thesis,
             validation=result.validation,
             quality=result.quality,
+            scanned_at=result.scanned_at,
+            execution_candle_time=result.execution_candle_time,
+            latest_candle_time=result.latest_candle_time,
             alert_sent=alert_sent,
         )
 

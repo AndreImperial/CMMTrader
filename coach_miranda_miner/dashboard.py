@@ -288,6 +288,10 @@ def render_scalper(
             "rank": result.score.rank,
             "symbol": result.candidate.route_symbol,
             "grade": result.quality.grade,
+            "scanned_at": _time_fmt(result.scanned_at),
+            "signal_candle": _time_fmt(result.execution_candle_time),
+            "latest_3m": _time_fmt(result.latest_candle_time),
+            "setup_age_min": _age_minutes(result.execution_candle_time, result.scanned_at),
             "signal": result.thesis.signal.value,
             "direction": result.thesis.direction,
             "confidence": result.thesis.confidence,
@@ -318,6 +322,7 @@ def render_scalper(
             column_config={
                 "confidence": st.column_config.NumberColumn("Confidence", format="%.2f"),
                 "score": st.column_config.NumberColumn("Score", format="%.1f"),
+                "setup_age_min": st.column_config.NumberColumn("Age Min", format="%.0f"),
                 "atr_pct": st.column_config.NumberColumn("3m ATR %", format="%.2f%%"),
                 "cci_slope": st.column_config.NumberColumn("CCI Slope", format="%.1f"),
                 "entry": st.column_config.NumberColumn("Entry", format="%.6f"),
@@ -357,6 +362,10 @@ def render_scalper(
             detail_cols[1].metric("Direction", result.thesis.direction.upper())
             detail_cols[2].metric("Confidence", f"{result.thesis.confidence:.0%}")
             detail_cols[3].metric("Grade", result.quality.grade)
+            time_cols = st.columns(3)
+            time_cols[0].metric("Scan Time", _time_fmt(result.scanned_at))
+            time_cols[1].metric("Signal Candle", _time_fmt(result.execution_candle_time))
+            time_cols[2].metric("Setup Age", _age_label(result.execution_candle_time, result.scanned_at))
             st.write("Quality")
             for item in result.quality.reasons:
                 st.write(f"- {item}")
@@ -398,6 +407,9 @@ def _render_scalp_summary_sections(results) -> None:
                 [
                     {
                         "symbol": item.candidate.route_symbol,
+                        "scanned_at": _time_fmt(item.scanned_at),
+                        "signal_candle": _time_fmt(item.execution_candle_time),
+                        "setup_age_min": _age_minutes(item.execution_candle_time, item.scanned_at),
                         "oi_change_24h_pct": item.candidate.open_interest_change_24h_pct,
                         "volume_24h_usd": item.candidate.volume_24h_usd,
                         "oi_price_read": item.quality.oi_price_read,
@@ -412,6 +424,7 @@ def _render_scalp_summary_sections(results) -> None:
             column_config={
                 "oi_change_24h_pct": st.column_config.NumberColumn("OI 24h %", format="%.2f%%"),
                 "volume_24h_usd": st.column_config.NumberColumn("24h Volume", format="$%.0f"),
+                "setup_age_min": st.column_config.NumberColumn("Age Min", format="%.0f"),
             },
         )
     if rejected_rows:
@@ -1271,6 +1284,31 @@ def _fmt(value: float | None) -> str:
     if value >= 1:
         return f"{value:.4f}"
     return f"{value:.6f}"
+
+
+def _time_fmt(value) -> str:
+    if value is None:
+        return "n/a"
+    try:
+        timestamp = pd.to_datetime(value, utc=True)
+    except (ValueError, TypeError):
+        return "n/a"
+    return timestamp.strftime("%H:%M UTC")
+
+
+def _age_minutes(start, end) -> float | None:
+    if start is None or end is None:
+        return None
+    start_time = pd.to_datetime(start, utc=True)
+    end_time = pd.to_datetime(end, utc=True)
+    return max((end_time - start_time).total_seconds() / 60, 0)
+
+
+def _age_label(start, end) -> str:
+    minutes = _age_minutes(start, end)
+    if minutes is None:
+        return "n/a"
+    return f"{minutes:.0f}m"
 
 
 if __name__ == "__main__":
