@@ -116,6 +116,8 @@ def main() -> None:
 
     if clear_cache:
         st.session_state.pop("scan_cache", None)
+        st.session_state.pop("scalp_cache", None)
+        st.session_state.pop("high_oi_cache", None)
         st.success("Scan cache cleared.")
 
     scanner_tab, scalp_tab, oi_tab, backtest_tab, history_tab = st.tabs(
@@ -143,12 +145,7 @@ def main() -> None:
 
     with oi_tab:
         if show_oi:
-            cached_payload = _cached_scan_payload()
-            if cached_payload is not None:
-                _, scores, _ = cached_payload
-                render_high_oi_from_scores(scores)
-            else:
-                render_high_oi(coach)
+            render_high_oi(coach, cache_seconds=refresh_seconds)
         else:
             st.info("Enable High OI + Volume in the sidebar.")
 
@@ -230,7 +227,13 @@ def render_scalper(
 ) -> None:
     st.subheader("ALMA EMA CCI Scalper")
     st.caption("15m bias, 5m structure, 3m execution. Manual trading only.")
-    run_scalp = st.button("Search Scalpable Setups", type="primary", use_container_width=True)
+    action_cols = st.columns([2, 1, 1])
+    run_scalp = action_cols[0].button("Search Scalpable Setups", type="primary", use_container_width=True)
+    force_scalp = action_cols[1].button("Force Fresh Scalp Scan", use_container_width=True)
+    clear_scalp = action_cols[2].button("Clear Scalp Cache", use_container_width=True)
+    if clear_scalp:
+        st.session_state.pop("scalp_cache", None)
+        st.success("Scalp cache cleared.")
     cache_key = ("scalp", _scan_cache_key(coach.settings))
     cached = st.session_state.get("scalp_cache")
     cache_is_valid = (
@@ -238,16 +241,31 @@ def render_scalper(
         and cached.get("key") == cache_key
         and time.time() - cached.get("saved_at", 0) < cache_seconds
     )
-    if not run_scalp and not force_refresh and not cache_is_valid:
+    if cached is not None:
+        age = int(time.time() - cached.get("saved_at", 0))
+        st.caption(f"Last scalp scan cache age: {age}s.")
+    else:
+        st.caption("Scalp status: idle. No scalp scan has run in this browser session.")
+    should_scan = run_scalp or force_scalp or force_refresh
+    if not should_scan and not cache_is_valid:
         st.info("Press Search Scalpable Setups to scan for ALMA/EMA + CCI scalp setups.")
         return
-    if cache_is_valid and not run_scalp and not force_refresh:
+    if cache_is_valid and not should_scan:
         summary, results = cached["payload"]
         cache_age = int(time.time() - cached.get("saved_at", 0))
         st.caption(f"Using cached scalp scan from {cache_age}s ago.")
     else:
-        with st.spinner("Scanning 15m bias, 5m structure, and 3m execution..."):
+        status = st.status("Starting scalp scan...", expanded=True)
+        status.write("Step 1/4: discovering liquid markets.")
+        status.write("Step 2/4: fetching 15m bias, 5m structure, and 1m execution candles.")
+        status.write("Step 3/4: building 3m execution candles and calculating EMA9, ALMA20, CCI20.")
+        with st.spinner("Scanning scalpable setups now..."):
             summary, results = coach.scan_scalps()
+        status.write(
+            f"Step 4/4: scan complete. {summary.deep_analyzed} symbols scanned, "
+            f"{summary.failed_symbols} failed."
+        )
+        status.update(label="Scalp scan complete", state="complete", expanded=False)
         st.session_state["scalp_cache"] = {
             "key": cache_key,
             "saved_at": time.time(),
@@ -518,9 +536,56 @@ def render_short_candidates(results) -> None:
     )
 
 
-def render_high_oi(coach: CoachMirandaMiner) -> None:
+def render_high_oi(coach: CoachMirandaMiner, cache_seconds: int = 300) -> None:
     st.subheader("High OI + Volume")
-    rows, warnings = coach.high_oi_watchlist()
+    action_cols = st.columns([2, 1, 1])
+    run_oi = action_cols[0].button("Scan High OI + Volume", type="primary", use_container_width=True)
+    force_oi = action_cols[1].button("Force Fresh OI", use_container_width=True)
+    clear_oi = action_cols[2].button("Clear OI Cache", use_container_width=True)
+    if clear_oi:
+        st.session_state.pop("high_oi_cache", None)
+        st.success("High OI cache cleared.")
+
+    cache_key = ("high_oi", _scan_cache_key(coach.settings))
+    cached = st.session_state.get("high_oi_cache")
+    cache_is_valid = (
+        cached is not None
+        and cached.get("key") == cache_key
+        and time.time() - cached.get("saved_at", 0) < cache_seconds
+    )
+    cached_payload = _cached_scan_payload()
+    if cached_payload is not None:
+        _, scores, _ = cached_payload
+        st.caption("Scanner cache is available. You can view scan-derived OI context below or run a fresh OI scan.")
+        render_high_oi_from_scores(scores, title="High OI + Volume From Latest Scanner Cache")
+
+    if cached is not None:
+        age = int(time.time() - cached.get("saved_at", 0))
+        st.caption(f"Last dedicated High OI scan cache age: {age}s.")
+    else:
+        st.caption("High OI status: idle. No dedicated OI scan has run in this browser session.")
+
+    should_scan = run_oi or force_oi or (cached_payload is None and cached is None)
+    if not should_scan and not cache_is_valid:
+        st.info("Press Scan High OI + Volume to refresh this tab.")
+        return
+    if cache_is_valid and not should_scan:
+        rows, warnings = cached["payload"]
+        st.caption("Using cached dedicated High OI scan.")
+    else:
+        status = st.status("Starting High OI scan...", expanded=True)
+        status.write("Step 1/3: building the current top market universe.")
+        status.write("Step 2/3: requesting Coinalyze OI when configured and volume fallback data.")
+        with st.spinner("Scanning high OI and high-volume coins..."):
+            rows, warnings = coach.high_oi_watchlist(limit=100)
+        status.write(f"Step 3/3: scan complete. {len(rows)} rows returned.")
+        status.update(label="High OI scan complete", state="complete", expanded=False)
+        st.session_state["high_oi_cache"] = {
+            "key": cache_key,
+            "saved_at": time.time(),
+            "payload": (rows, warnings),
+        }
+
     for warning in warnings[:3]:
         st.caption(warning)
     if not rows:
@@ -540,7 +605,7 @@ def render_high_oi(coach: CoachMirandaMiner) -> None:
                 "status": row.status,
                 "updated": row.updated_at.isoformat(timespec="minutes"),
             }
-            for row in rows
+            for row in rows[:100]
         ]
     )
     st.dataframe(
@@ -557,8 +622,8 @@ def render_high_oi(coach: CoachMirandaMiner) -> None:
     )
 
 
-def render_high_oi_from_scores(scores) -> None:
-    st.subheader("High OI + Volume")
+def render_high_oi_from_scores(scores, title: str = "High OI + Volume") -> None:
+    st.subheader(title)
     rows = [
         item
         for item in scores
