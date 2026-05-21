@@ -164,6 +164,7 @@ class CoachMirandaMiner:
         self._scan_ticker_cache = {}
         self._scan_candle_cache = {}
         self._scan_cache_lock = Lock()
+        self._reset_alert_budget()
         try:
             market_regime = self.gatekeeper.market_regime()
         except (CcxtError, requests.RequestException, ValueError) as exc:
@@ -290,6 +291,7 @@ class CoachMirandaMiner:
         self._scan_ticker_cache = {}
         self._scan_candle_cache = {}
         self._scan_cache_lock = Lock()
+        self._reset_alert_budget()
         try:
             market_regime = self.gatekeeper.market_regime()
             candidates = self._discover_scalp_candidates()
@@ -814,6 +816,8 @@ class CoachMirandaMiner:
             return False
         if thesis.direction == "none" or thesis.setup.value == "none":
             return False
+        if not self._alert_budget_available(thesis):
+            return False
         grade = alert_grade(thesis, validation, score)
         min_alert_grade = getattr(self.settings, "min_alert_grade", "B")
         if grade_rank(grade) < grade_rank(min_alert_grade):
@@ -853,6 +857,7 @@ class CoachMirandaMiner:
         except requests.RequestException:
             return False
         if sent:
+            self._consume_alert_budget(thesis)
             self.journal.record_alert(
                 thesis.symbol,
                 thesis.setup.value,
@@ -860,6 +865,21 @@ class CoachMirandaMiner:
                 message,
             )
         return sent
+
+    def _reset_alert_budget(self) -> None:
+        self._intraday_alerts_sent_this_scan = 0
+        self._scalp_alerts_sent_this_scan = 0
+
+    def _alert_budget_available(self, thesis: TradeThesis) -> bool:
+        if thesis.setup.value == "alma_cci_scalp":
+            return self._scalp_alerts_sent_this_scan < getattr(self.settings, "max_scalp_alerts_per_scan", 5)
+        return self._intraday_alerts_sent_this_scan < getattr(self.settings, "max_alerts_per_scan", 5)
+
+    def _consume_alert_budget(self, thesis: TradeThesis) -> None:
+        if thesis.setup.value == "alma_cci_scalp":
+            self._scalp_alerts_sent_this_scan += 1
+        else:
+            self._intraday_alerts_sent_this_scan += 1
 
     def _has_active_watch(self, thesis: TradeThesis) -> bool:
         if not hasattr(self.journal, "active_watch_exists"):

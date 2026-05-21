@@ -67,6 +67,8 @@ class Settings:
     require_watch_before_enter: bool
     active_setup_ttl_minutes: int
     alert_cooldown_minutes: int
+    max_alerts_per_scan: int
+    max_scalp_alerts_per_scan: int
     scalp_scan_limit: int
     scalp_universe_limit: int
     scalp_candle_limit: int
@@ -144,6 +146,8 @@ class Settings:
             require_watch_before_enter=_bool(os.getenv("REQUIRE_WATCH_BEFORE_ENTER", "false")),
             active_setup_ttl_minutes=int(os.getenv("ACTIVE_SETUP_TTL_MINUTES", "240")),
             alert_cooldown_minutes=int(os.getenv("ALERT_COOLDOWN_MINUTES", "180")),
+            max_alerts_per_scan=int(os.getenv("MAX_ALERTS_PER_SCAN", "5")),
+            max_scalp_alerts_per_scan=int(os.getenv("MAX_SCALP_ALERTS_PER_SCAN", "5")),
             scalp_scan_limit=int(os.getenv("SCALP_SCAN_LIMIT", "100")),
             scalp_universe_limit=int(os.getenv("SCALP_UNIVERSE_LIMIT", "250")),
             scalp_candle_limit=int(os.getenv("SCALP_CANDLE_LIMIT", "240")),

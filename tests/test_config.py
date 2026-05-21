@@ -27,6 +27,8 @@ class SettingsTests(unittest.TestCase):
             "REQUIRE_WATCH_BEFORE_ENTER",
             "ACTIVE_SETUP_TTL_MINUTES",
             "MAX_ATR_PCT",
+            "MAX_ALERTS_PER_SCAN",
+            "MAX_SCALP_ALERTS_PER_SCAN",
             "SCALP_SCAN_LIMIT",
             "SCALP_UNIVERSE_LIMIT",
             "SCALP_CANDLE_LIMIT",
@@ -59,6 +61,8 @@ class SettingsTests(unittest.TestCase):
             "REQUIRE_WATCH_BEFORE_ENTER",
             "ACTIVE_SETUP_TTL_MINUTES",
             "MAX_ATR_PCT",
+            "MAX_ALERTS_PER_SCAN",
+            "MAX_SCALP_ALERTS_PER_SCAN",
             "SCALP_SCAN_LIMIT",
             "SCALP_UNIVERSE_LIMIT",
             "SCALP_CANDLE_LIMIT",
@@ -96,6 +100,8 @@ class SettingsTests(unittest.TestCase):
         self.assertFalse(settings.require_watch_before_enter)
         self.assertEqual(settings.active_setup_ttl_minutes, 240)
         self.assertEqual(settings.max_atr_pct, 8)
+        self.assertEqual(settings.max_alerts_per_scan, 5)
+        self.assertEqual(settings.max_scalp_alerts_per_scan, 5)
         self.assertEqual(settings.scalp_scan_limit, 100)
         self.assertEqual(settings.scalp_universe_limit, 250)
         self.assertEqual(settings.scalp_candle_limit, 240)

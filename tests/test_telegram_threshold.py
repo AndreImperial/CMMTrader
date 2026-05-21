@@ -10,9 +10,15 @@ from coach_miranda_miner.models import Asset, Candidate, Setup, SignalState, Tra
 class TelegramThresholdTests(unittest.TestCase):
     def test_watch_threshold_sends_watch_and_enter_only(self) -> None:
         coach = CoachMirandaMiner.__new__(CoachMirandaMiner)
-        coach.settings = SimpleNamespace(telegram_min_signal="watch", alert_cooldown_minutes=60)
+        coach.settings = SimpleNamespace(
+            telegram_min_signal="watch",
+            alert_cooldown_minutes=60,
+            max_alerts_per_scan=5,
+            max_scalp_alerts_per_scan=5,
+        )
         coach.telegram = FakeTelegram()
         coach.journal = FakeJournal()
+        coach._reset_alert_budget()
 
         candidate = Candidate(
             asset=Asset(symbol="BTC/USD", base="BTC", quote="USD"),
@@ -54,6 +60,42 @@ class TelegramThresholdTests(unittest.TestCase):
             )
         )
         self.assertEqual(len(coach.telegram.messages), 2)
+
+    def test_alert_budget_caps_messages_per_scan(self) -> None:
+        coach = CoachMirandaMiner.__new__(CoachMirandaMiner)
+        coach.settings = SimpleNamespace(
+            telegram_min_signal="watch",
+            alert_cooldown_minutes=60,
+            max_alerts_per_scan=1,
+            max_scalp_alerts_per_scan=5,
+        )
+        coach.telegram = FakeTelegram()
+        coach.journal = FakeJournal()
+        coach._reset_alert_budget()
+        candidate = Candidate(
+            asset=Asset(symbol="BTC/USD", base="BTC", quote="USD"),
+            exchange_id="coinbase",
+            route_symbol="BTC/USD",
+            reason="test",
+        )
+
+        self.assertTrue(
+            coach.maybe_send_telegram_alert(
+                candidate,
+                _thesis(SignalState.WATCH),
+                ValidationResult(approved=False, reasons=[]),
+                "watch message",
+            )
+        )
+        self.assertFalse(
+            coach.maybe_send_telegram_alert(
+                candidate,
+                _thesis(SignalState.ENTER),
+                ValidationResult(approved=True, reasons=[]),
+                "enter message",
+            )
+        )
+        self.assertEqual(len(coach.telegram.messages), 1)
 
 
 def _thesis(signal: SignalState) -> TradeThesis:

@@ -52,6 +52,10 @@ services:
         value: watch
       - key: ALERT_COOLDOWN_MINUTES
         value: "180"
+      - key: MAX_ALERTS_PER_SCAN
+        value: "5"
+      - key: MAX_SCALP_ALERTS_PER_SCAN
+        value: "5"
       # Optional keys for better derivatives data:
       - key: COINALYZE_API_KEY
         sync: false

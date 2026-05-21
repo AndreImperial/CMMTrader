@@ -14,6 +14,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("scan", help="Run one multi-asset signal scan")
     subparsers.add_parser("scalp", help="Run one ALMA/EMA/CCI scalp scan")
     subparsers.add_parser("doctor", help="Check configuration and free-mode status")
+    subparsers.add_parser("telegram-test", help="Send a test Telegram message")
     subparsers.add_parser("oi", help="Show high open-interest and volume watchlist")
     price = subparsers.add_parser("price", help="Fetch one live/updating price")
     price.add_argument("--symbol", default=None)
@@ -96,6 +97,15 @@ def main() -> None:
         print(f"Expectancy degradation: {result['degradation_pct']:.2f}%")
     if args.command == "doctor":
         print(coach.doctor())
+    if args.command == "telegram-test":
+        if not coach.telegram.configured:
+            print("Telegram is not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.")
+        else:
+            sent = coach.telegram.send(
+                "Coach Miranda Miner test message.\n"
+                "Telegram is connected and ready for setup alerts."
+            )
+            print("Telegram test sent." if sent else "Telegram test did not send.")
     if args.command == "oi":
         rows, warnings = coach.high_oi_watchlist()
         for warning in warnings[:5]:
