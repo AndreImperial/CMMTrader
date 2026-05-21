@@ -88,14 +88,8 @@ class AlmaCciScalper:
 
         long_cross = _crossed_above(execution["ema_9"], execution["alma_20"])
         short_cross = _crossed_below(execution["ema_9"], execution["alma_20"])
-        long_cci_cross = _crossed_above_level(execution["cci_20"], -100) or _crossed_above_level(
-            execution["cci_20"],
-            100,
-        )
-        short_cci_cross = _crossed_below_level(execution["cci_20"], 100) or _crossed_below_level(
-            execution["cci_20"],
-            -100,
-        )
+        long_cci_cross = _cci_rising_from_lower_zone(execution["cci_20"])
+        short_cci_cross = _cci_falling_from_upper_zone(execution["cci_20"])
         long_ready = bias == "long" and long_structure and _aligned_long(execution)
         short_ready = bias == "short" and short_structure and _aligned_short(execution)
 
@@ -189,7 +183,7 @@ class AlmaCciScalper:
             evidence=[
                 f"15m bias, 5m structure, and 3m execution are stacked {direction}.",
                 f"3m EMA9 / ALMA(20, 0.8, 8) trigger is {trigger_text}.",
-                f"CCI 20 threshold trigger is {trigger_text}; rel volume {rel_vol:.2f}x.",
+                f"CCI 20 momentum trigger is {trigger_text} from the -100/+100 zone; rel volume {rel_vol:.2f}x.",
                 "Scalp model uses 15m bias, 5m structure, 3m execution.",
             ],
         )
@@ -259,12 +253,20 @@ def _crossed_below(left: pd.Series, right: pd.Series) -> bool:
     return _valid_pair(left, right) and left.iloc[-2] >= right.iloc[-2] and left.iloc[-1] < right.iloc[-1]
 
 
-def _crossed_above_level(series: pd.Series, level: float) -> bool:
-    return _valid(series.iloc[-2], series.iloc[-1]) and series.iloc[-2] <= level < series.iloc[-1]
+def _cci_rising_from_lower_zone(series: pd.Series) -> bool:
+    if not _valid(series.iloc[-2], series.iloc[-1]):
+        return False
+    previous = float(series.iloc[-2])
+    current = float(series.iloc[-1])
+    return current > previous and previous <= -100 and current > -100
 
 
-def _crossed_below_level(series: pd.Series, level: float) -> bool:
-    return _valid(series.iloc[-2], series.iloc[-1]) and series.iloc[-2] >= level > series.iloc[-1]
+def _cci_falling_from_upper_zone(series: pd.Series) -> bool:
+    if not _valid(series.iloc[-2], series.iloc[-1]):
+        return False
+    previous = float(series.iloc[-2])
+    current = float(series.iloc[-1])
+    return current < previous and previous >= 100 and current < 100
 
 
 def _valid_pair(left: pd.Series, right: pd.Series) -> bool:
