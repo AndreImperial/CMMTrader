@@ -61,6 +61,7 @@ def main() -> None:
         )
         discovery_limit = st.slider("Top universe", 1, 100, min(base_settings.prefilter_limit, 100))
         deep_scan_limit = st.slider("Deep analysis limit", 1, 30, min(base_settings.deep_scan_limit, 30))
+        scalp_scan_limit = st.slider("Scalp scan limit", 5, 30, min(base_settings.scalp_scan_limit, 30))
         candle_limit = st.slider("Candles per timeframe", 80, 300, base_settings.candle_limit)
         auto_refresh = st.checkbox("Auto scan", value=base_settings.auto_scan_enabled)
         refresh_seconds = st.selectbox(
@@ -84,6 +85,7 @@ def main() -> None:
         discovery_limit=discovery_limit,
         prefilter_limit=discovery_limit,
         deep_scan_limit=deep_scan_limit,
+        scalp_scan_limit=scalp_scan_limit,
         candle_limit=candle_limit,
         render_charts=False,
         auto_scan_enabled=auto_refresh,
@@ -116,8 +118,8 @@ def main() -> None:
         st.session_state.pop("scan_cache", None)
         st.success("Scan cache cleared.")
 
-    scanner_tab, oi_tab, backtest_tab, history_tab = st.tabs(
-        ["Scanner", "High OI", "Backtest", "History"]
+    scanner_tab, scalp_tab, oi_tab, backtest_tab, history_tab = st.tabs(
+        ["Scanner", "Scalper", "High OI", "Backtest", "History"]
     )
     with scanner_tab:
         if run_scan or auto_refresh:
@@ -130,6 +132,14 @@ def main() -> None:
             )
         else:
             st.info("Press Scan Now to look for setups.")
+
+    with scalp_tab:
+        render_scalper(
+            coach,
+            use_tradingview,
+            force_refresh=run_scan,
+            cache_seconds=refresh_seconds,
+        )
 
     with oi_tab:
         if show_oi:
@@ -210,6 +220,120 @@ def render_scan(
     if show_oi:
         render_high_oi_from_scores(scores)
     render_deep_scan(results, use_tradingview)
+
+
+def render_scalper(
+    coach: CoachMirandaMiner,
+    use_tradingview: bool = True,
+    force_refresh: bool = False,
+    cache_seconds: int = 300,
+) -> None:
+    st.subheader("ALMA EMA CCI Scalper")
+    st.caption("15m bias, 5m structure, 3m execution. Manual trading only.")
+    run_scalp = st.button("Search Scalpable Setups", type="primary", use_container_width=True)
+    cache_key = ("scalp", _scan_cache_key(coach.settings))
+    cached = st.session_state.get("scalp_cache")
+    cache_is_valid = (
+        cached is not None
+        and cached.get("key") == cache_key
+        and time.time() - cached.get("saved_at", 0) < cache_seconds
+    )
+    if not run_scalp and not force_refresh and not cache_is_valid:
+        st.info("Press Search Scalpable Setups to scan for ALMA/EMA + CCI scalp setups.")
+        return
+    if cache_is_valid and not run_scalp and not force_refresh:
+        summary, results = cached["payload"]
+        cache_age = int(time.time() - cached.get("saved_at", 0))
+        st.caption(f"Using cached scalp scan from {cache_age}s ago.")
+    else:
+        with st.spinner("Scanning 15m bias, 5m structure, and 3m execution..."):
+            summary, results = coach.scan_scalps()
+        st.session_state["scalp_cache"] = {
+            "key": cache_key,
+            "saved_at": time.time(),
+            "payload": (summary, results),
+        }
+
+    status_cols = st.columns(5)
+    status_cols[0].metric("Candidates", summary.candidates_scanned)
+    status_cols[1].metric("Scanned", summary.deep_analyzed)
+    status_cols[2].metric("Failed", summary.failed_symbols)
+    status_cols[3].metric("Duration", f"{summary.duration_seconds or 0:.1f}s")
+    status_cols[4].metric("Workers", summary.worker_count)
+    for warning in summary.warnings[:5]:
+        st.caption(warning)
+
+    rows = [
+        {
+            "rank": result.score.rank,
+            "symbol": result.candidate.route_symbol,
+            "signal": result.thesis.signal.value,
+            "direction": result.thesis.direction,
+            "confidence": result.thesis.confidence,
+            "score": result.score.score,
+            "entry": result.thesis.entry,
+            "stop": result.thesis.stop_loss,
+            "target": result.thesis.targets[0] if result.thesis.targets else None,
+            "rr": result.thesis.risk_reward,
+            "rel_volume_3m": result.score.relative_volume,
+            "alert_sent": result.alert_sent,
+        }
+        for result in results
+    ]
+    if rows:
+        st.dataframe(
+            pd.DataFrame(rows),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "confidence": st.column_config.NumberColumn("Confidence", format="%.2f"),
+                "score": st.column_config.NumberColumn("Score", format="%.1f"),
+                "entry": st.column_config.NumberColumn("Entry", format="%.6f"),
+                "stop": st.column_config.NumberColumn("Stop", format="%.6f"),
+                "target": st.column_config.NumberColumn("Target", format="%.6f"),
+                "rr": st.column_config.NumberColumn("R/R", format="%.2f"),
+                "rel_volume_3m": st.column_config.NumberColumn("3m Rel Vol", format="%.2fx"),
+            },
+        )
+    else:
+        st.info("No scalpable setups found in this scan.")
+
+    for result in results:
+        if result.thesis.signal.value not in {"watch", "enter"}:
+            continue
+        with st.expander(
+            f"#{result.score.rank} {result.candidate.route_symbol} - "
+            f"{result.thesis.signal.value.upper()} {result.thesis.direction.upper()}",
+            expanded=result.thesis.signal.value == "enter",
+        ):
+            if use_tradingview:
+                components.html(
+                    _tradingview_widget(result.candidate.route_symbol, "3m"),
+                    height=TRADINGVIEW_HEIGHT,
+                )
+                st.caption("TradingView may show the nearest supported low timeframe if 3m is unavailable.")
+            else:
+                st.plotly_chart(
+                    _scalp_chart(result),
+                    use_container_width=True,
+                    key=f"scalp-chart-{result.candidate.route_symbol}",
+                )
+            detail_cols = st.columns(4)
+            detail_cols[0].metric("Signal", result.thesis.signal.value.upper())
+            detail_cols[1].metric("Direction", result.thesis.direction.upper())
+            detail_cols[2].metric("Confidence", f"{result.thesis.confidence:.0%}")
+            detail_cols[3].metric("R/R", result.thesis.risk_reward or "n/a")
+            st.write("Entry", _fmt(result.thesis.entry))
+            st.write("Stop", _fmt(result.thesis.stop_loss))
+            st.write("Target", ", ".join(_fmt(item) for item in result.thesis.targets) or "n/a")
+            st.write("Evidence")
+            for item in [*result.score.prefilter_reasons, *result.thesis.evidence]:
+                st.write(f"- {item}")
+            if result.validation.approved:
+                st.success("Approved ENTER setup")
+            else:
+                for reason in result.validation.reasons:
+                    st.warning(reason)
 
 
 def render_prefilter(scores) -> None:
@@ -821,6 +945,71 @@ def _candlestick(pack: IntelligencePack, timeframe: str, thesis: TradeThesis) ->
     return fig
 
 
+def _scalp_chart(result) -> go.Figure:
+    frame = result.candles["3m"].tail(120)
+    fig = go.Figure()
+    fig.add_trace(
+        go.Candlestick(
+            x=frame["timestamp"],
+            open=frame["open"],
+            high=frame["high"],
+            low=frame["low"],
+            close=frame["close"],
+            name="3m",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=frame["timestamp"],
+            y=frame["ema_9"],
+            mode="lines",
+            name="EMA 9",
+            line=dict(color="#f59e0b", width=1.5),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=frame["timestamp"],
+            y=frame["alma_20"],
+            mode="lines",
+            name="ALMA 20",
+            line=dict(color="#22c55e", width=1.8),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=frame["timestamp"],
+            y=frame["cci_200"],
+            mode="lines",
+            name="CCI 200",
+            yaxis="y2",
+            line=dict(color="#38bdf8", width=1.4),
+        )
+    )
+    for value, color, label in [
+        (result.thesis.entry, "#3b82f6", "Entry"),
+        (result.thesis.stop_loss, "#ef4444", "Stop"),
+    ]:
+        if value is not None:
+            fig.add_hline(y=value, line_color=color, line_dash="dash", annotation_text=label)
+    for target in result.thesis.targets:
+        fig.add_hline(y=target, line_color="#22c55e", line_dash="dot", annotation_text="Target")
+    fig.update_layout(
+        height=720,
+        margin=dict(l=10, r=10, t=35, b=10),
+        xaxis_rangeslider_visible=False,
+        template="plotly_dark",
+        title=f"{result.candidate.route_symbol} 3m ALMA/EMA/CCI",
+        yaxis2=dict(
+            title="CCI",
+            overlaying="y",
+            side="right",
+            showgrid=False,
+        ),
+    )
+    return fig
+
+
 def _tradingview_widget(symbol: str, timeframe: str) -> str:
     return f"""
     <!DOCTYPE html>
@@ -877,6 +1066,8 @@ def _tradingview_symbol(symbol: str) -> str:
 
 def _tradingview_interval(timeframe: str) -> str:
     return {
+        "3m": "3",
+        "5m": "5",
         "15m": "15",
         "1h": "60",
         "4h": "240",
@@ -911,6 +1102,9 @@ def _scan_cache_key(settings: Settings) -> tuple:
         getattr(settings, "active_setup_ttl_minutes", 240),
         settings.scan_workers,
         settings.prefilter_candle_limit,
+        getattr(settings, "scalp_scan_limit", 20),
+        getattr(settings, "scalp_candle_limit", 240),
+        getattr(settings, "scalp_min_volume_24h_usd", 25_000_000),
     )
 
 

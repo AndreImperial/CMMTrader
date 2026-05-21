@@ -50,6 +50,7 @@ from .models import (
 from .news import CryptoPanicNewsProvider, EmptyNewsProvider
 from .oi import OISnapshot, OpenInterestScanner
 from .risk import RiskManager
+from .scalper import AlmaCciScalper, ScalpScanResult
 from .telegram import TelegramAlerter
 from .validator import ThesisValidator
 
@@ -145,6 +146,7 @@ class CoachMirandaMiner:
             settings.oi_bases,
             settings.coinalyze_api_key,
         )
+        self.scalper = AlmaCciScalper(self.validator)
 
     def scan_setups(self) -> tuple[ScanSummary, list[SetupScore], list[DeepScanResult]]:
         started_at = time.perf_counter()
@@ -273,6 +275,137 @@ class CoachMirandaMiner:
             worker_count=worker_count,
         )
         return summary, [score for _, score in ranked], deep_results
+
+    def scan_scalps(self) -> tuple[ScanSummary, list[ScalpScanResult]]:
+        started_at = time.perf_counter()
+        warnings: list[str] = []
+        worker_count = max(1, self.settings.scan_workers)
+        self._scan_ticker_cache = {}
+        self._scan_candle_cache = {}
+        self._scan_cache_lock = Lock()
+        try:
+            market_regime = self.gatekeeper.market_regime()
+            candidates = self.discovery.discover(self.settings.prefilter_limit)
+        except (CcxtError, requests.RequestException, ValueError) as exc:
+            return (
+                ScanSummary(
+                    candidates_scanned=0,
+                    deep_analyzed=0,
+                    warnings=[f"Scalp discovery unavailable: {exc}"],
+                    coinalyze_enabled=bool(self.settings.coinalyze_api_key),
+                    duration_seconds=_elapsed(started_at),
+                    worker_count=worker_count,
+                ),
+                [],
+            )
+
+        enriched: list[Candidate] = []
+        failed_symbols = 0
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(self._enrich_scalp_candidate, candidate): candidate
+                for candidate in candidates
+            }
+            done, pending = wait(futures, timeout=self.settings.fetch_timeout_seconds)
+            for future in done:
+                candidate = futures[future]
+                try:
+                    enriched_candidate = future.result()
+                except (CcxtError, requests.RequestException, ValueError, IndexError) as exc:
+                    failed_symbols += 1
+                    warnings.append(f"{candidate.route_symbol} scalp prefilter skipped: {exc}")
+                    continue
+                if enriched_candidate is None:
+                    continue
+                enriched.append(enriched_candidate)
+            for future in pending:
+                failed_symbols += 1
+                candidate = futures[future]
+                future.cancel()
+                warnings.append(f"{candidate.route_symbol} scalp prefilter timed out.")
+
+        ranked = sorted(enriched, key=lambda item: item.volume_24h_usd or 0.0, reverse=True)
+        scan_limit = max(1, getattr(self.settings, "scalp_scan_limit", 20))
+        results: list[ScalpScanResult] = []
+        with ThreadPoolExecutor(max_workers=max(1, min(worker_count, scan_limit))) as executor:
+            futures = {
+                executor.submit(self._deep_scalp_candidate, candidate, rank, market_regime): candidate
+                for rank, candidate in enumerate(ranked[:scan_limit], start=1)
+            }
+            done, pending = wait(
+                futures,
+                timeout=max(self.settings.fetch_timeout_seconds, self.settings.fetch_timeout_seconds * scan_limit),
+            )
+            for future in done:
+                candidate = futures[future]
+                try:
+                    result = future.result()
+                except (CcxtError, requests.RequestException, ValueError, IndexError) as exc:
+                    failed_symbols += 1
+                    warnings.append(f"{candidate.route_symbol} scalp scan failed: {exc}")
+                    continue
+                if result is not None:
+                    results.append(result)
+            for future in pending:
+                failed_symbols += 1
+                candidate = futures[future]
+                future.cancel()
+                warnings.append(f"{candidate.route_symbol} scalp scan timed out.")
+
+        results = sorted(results, key=lambda item: (item.thesis.signal.value != "enter", item.score.rank))
+        summary = ScanSummary(
+            candidates_scanned=len(ranked),
+            deep_analyzed=len(results),
+            warnings=warnings,
+            coinalyze_enabled=bool(self.settings.coinalyze_api_key),
+            market_regime=market_regime,
+            duration_seconds=_elapsed(started_at),
+            failed_symbols=failed_symbols,
+            worker_count=worker_count,
+        )
+        return summary, results
+
+    def _enrich_scalp_candidate(self, candidate: Candidate) -> Candidate | None:
+        ticker = self._cached_ticker(candidate.exchange_id, candidate.route_symbol)
+        if ticker.quote_volume is not None and ticker.quote_volume < self.settings.scalp_min_volume_24h_usd:
+            return None
+        return candidate.model_copy(update={"volume_24h_usd": ticker.quote_volume})
+
+    def _deep_scalp_candidate(
+        self,
+        candidate: Candidate,
+        rank: int,
+        market_regime: MarketRegime,
+    ) -> ScalpScanResult | None:
+        candles = {
+            "15m": self._scalp_candles(candidate, "15m"),
+            "5m": self._scalp_candles(candidate, "5m"),
+            "3m": self._scalp_candles(candidate, "3m"),
+        }
+        result = self.scalper.analyze(candidate, candles, rank, market_regime)
+        message = self.alerts.format(candidate, result.thesis, result.validation, result.score)
+        alert_sent = self.maybe_send_telegram_alert(
+            candidate,
+            result.thesis,
+            result.validation,
+            message,
+            result.score,
+        )
+        return ScalpScanResult(
+            candidate=result.candidate,
+            score=result.score,
+            candles=result.candles,
+            thesis=result.thesis,
+            validation=result.validation,
+            alert_sent=alert_sent,
+        )
+
+    def _scalp_candles(self, candidate: Candidate, timeframe: str) -> pd.DataFrame:
+        limit = getattr(self.settings, "scalp_candle_limit", 240)
+        if timeframe != "3m":
+            return self._cached_candles(candidate.exchange_id, candidate.route_symbol, timeframe, limit)
+        one_minute = self._cached_candles(candidate.exchange_id, candidate.route_symbol, "1m", limit * 3)
+        return _resample_ohlcv(one_minute, "3min").tail(limit).reset_index(drop=True)
 
     def _score_candidate(
         self,
@@ -1001,6 +1134,27 @@ def _setup_score(
 
 def _elapsed(started_at: float) -> float:
     return round(time.perf_counter() - started_at, 2)
+
+
+def _resample_ohlcv(candles: pd.DataFrame, rule: str) -> pd.DataFrame:
+    frame = candles.copy()
+    frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
+    resampled = (
+        frame.set_index("timestamp")
+        .resample(rule)
+        .agg(
+            {
+                "open": "first",
+                "high": "max",
+                "low": "min",
+                "close": "last",
+                "volume": "sum",
+            }
+        )
+        .dropna()
+        .reset_index()
+    )
+    return resampled[["timestamp", "open", "high", "low", "close", "volume"]]
 
 
 def _best_setup_name(setup_stats: dict[str, dict]) -> str | None:

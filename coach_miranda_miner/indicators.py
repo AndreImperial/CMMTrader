@@ -1,10 +1,42 @@
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 
 
 def moving_average(series: pd.Series, window: int) -> pd.Series:
     return series.rolling(window=window, min_periods=window).mean()
+
+
+def ema(series: pd.Series, span: int) -> pd.Series:
+    return series.ewm(span=span, adjust=False, min_periods=span).mean()
+
+
+def alma(series: pd.Series, length: int = 20, offset: float = 0.8, sigma: float = 8.0) -> pd.Series:
+    if length <= 0:
+        raise ValueError("ALMA length must be positive.")
+    m = offset * (length - 1)
+    s = length / sigma
+    weights = pd.Series(
+        [math.exp(-((index - m) ** 2) / (2 * s * s)) for index in range(length)],
+        dtype="float64",
+    )
+    weights_array = (weights / weights.sum()).to_numpy()
+    return series.rolling(window=length, min_periods=length).apply(
+        lambda window: float((window * weights_array).sum()),
+        raw=True,
+    )
+
+
+def cci(candles: pd.DataFrame, period: int = 200) -> pd.Series:
+    typical_price = (candles["high"] + candles["low"] + candles["close"]) / 3
+    mean = typical_price.rolling(window=period, min_periods=period).mean()
+    mean_deviation = typical_price.rolling(window=period, min_periods=period).apply(
+        lambda window: float((abs(window - window.mean())).mean()),
+        raw=False,
+    )
+    return (typical_price - mean) / (0.015 * mean_deviation.replace(0, pd.NA))
 
 
 def rsi(series: pd.Series, period: int) -> pd.Series:

@@ -196,6 +196,9 @@ def _base_price(base: str) -> float:
 
 def _timeframe_minutes(timeframe: str) -> int:
     return {
+        "1m": 1,
+        "3m": 3,
+        "5m": 5,
         "15m": 15,
         "1h": 60,
         "4h": 240,
@@ -326,6 +329,9 @@ def _coingecko_days(timeframe: str, limit: int) -> str:
 
 def _pandas_rule(timeframe: str) -> str:
     return {
+        "1m": "1min",
+        "3m": "3min",
+        "5m": "5min",
         "15m": "15min",
         "1h": "1h",
         "4h": "4h",
@@ -457,6 +463,9 @@ def _yahoo_symbol(base: str) -> str:
 
 def _yahoo_interval(timeframe: str) -> str:
     return {
+        "1m": "1m",
+        "3m": "5m",
+        "5m": "5m",
         "15m": "15m",
         "1h": "1h",
         "4h": "1h",
@@ -465,7 +474,7 @@ def _yahoo_interval(timeframe: str) -> str:
 
 
 def _yahoo_range(timeframe: str, limit: int) -> str:
-    if timeframe == "15m":
+    if timeframe in {"1m", "3m", "5m", "15m"}:
         return "5d"
     if timeframe in {"1h", "4h"}:
         return "3mo"
@@ -648,18 +657,18 @@ class CoinbaseRouter:
             return self._candle_cache[cache_key].copy()
 
         product = self._coinbase_product(symbol.split("/")[0])
-        response = _get_with_retry(
+        granularity = _coinbase_granularity(timeframe)
+        rows = _coinbase_candle_rows(
             self.session,
             f"{self.base_url}/products/{product}/candles",
-            params={"granularity": _coinbase_granularity(timeframe)},
+            granularity,
+            limit,
         )
-        rows = response.json()
-        frame = pd.DataFrame(
-            rows,
-            columns=["timestamp", "low", "high", "open", "close", "volume"],
-        )
+        frame = pd.DataFrame(rows, columns=["timestamp", "low", "high", "open", "close", "volume"])
+        if frame.empty:
+            raise ValueError(f"Coinbase returned no candles for {symbol} {timeframe}.")
         frame["timestamp"] = pd.to_datetime(frame["timestamp"], unit="s", utc=True)
-        frame = frame.sort_values("timestamp")
+        frame = frame.sort_values("timestamp").drop_duplicates(subset=["timestamp"])
         candles = frame[["timestamp", "open", "high", "low", "close", "volume"]].tail(limit).reset_index(drop=True)
         self._candle_cache[cache_key] = candles
         return candles.copy()
@@ -710,11 +719,47 @@ def _coinbase_product(base: str) -> str:
 
 def _coinbase_granularity(timeframe: str) -> int:
     return {
+        "1m": 60,
+        "5m": 300,
         "15m": 900,
         "1h": 3600,
         "4h": 21600,
         "1d": 86400,
     }.get(timeframe, 3600)
+
+
+def _coinbase_candle_rows(
+    session: requests.Session,
+    url: str,
+    granularity: int,
+    limit: int,
+) -> list:
+    if limit <= 300:
+        response = _get_with_retry(session, url, params={"granularity": granularity})
+        return response.json()
+    rows: list = []
+    end = datetime.now(timezone.utc)
+    remaining = limit
+    while remaining > 0:
+        chunk = min(remaining, 300)
+        start = end - timedelta(seconds=granularity * chunk)
+        response = _get_with_retry(
+            session,
+            url,
+            params={
+                "granularity": granularity,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+            },
+        )
+        payload = response.json()
+        if not payload:
+            break
+        rows.extend(payload)
+        remaining -= chunk
+        end = start
+        time.sleep(0.05)
+    return rows
 
 
 def _get_with_retry(

@@ -12,6 +12,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("run", help="Run one paper-trading decision cycle")
     subparsers.add_parser("scan", help="Run one multi-asset signal scan")
+    subparsers.add_parser("scalp", help="Run one ALMA/EMA/CCI scalp scan")
     subparsers.add_parser("doctor", help="Check configuration and free-mode status")
     subparsers.add_parser("oi", help="Show high open-interest and volume watchlist")
     price = subparsers.add_parser("price", help="Fetch one live/updating price")
@@ -53,6 +54,16 @@ def main() -> None:
             if index > 1:
                 print("\n" + ("-" * 72) + "\n")
             print(message)
+    if args.command == "scalp":
+        summary, results = coach.scan_scalps()
+        for warning in summary.warnings[:5]:
+            print(f"Warning: {warning}")
+        for result in results:
+            print(
+                f"{result.candidate.route_symbol} | {result.thesis.signal.value.upper()} "
+                f"{result.thesis.direction.upper()} | confidence {result.thesis.confidence:.2f} | "
+                f"score {result.score.score:.1f} | entry {result.thesis.entry or 0:.6g}"
+            )
     if args.command == "backtest":
         print(coach.backtest(args.symbol, args.timeframe, args.strategy, args.side).format())
     if args.command == "backtest-batch":

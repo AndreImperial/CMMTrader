@@ -15,6 +15,7 @@ class Setup(str, Enum):
     APEX_SQUEEZE = "apex_squeeze"
     TRANSITION_PLAY = "transition_play"
     TABO = "tabo"
+    ALMA_CCI_SCALP = "alma_cci_scalp"
     NONE = "none"
 
 

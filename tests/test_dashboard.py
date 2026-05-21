@@ -14,6 +14,11 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('"width": "100%"', html)
         self.assertNotIn('"autosize": true', html)
 
+    def test_tradingview_widget_supports_scalp_interval(self) -> None:
+        html = _tradingview_widget("BTC/USD", "3m")
+
+        self.assertIn('"interval": "3"', html)
+
     def test_scan_cache_key_changes_with_speed_settings(self) -> None:
         base = _settings(scan_workers=8, prefilter_candle_limit=40)
         changed_workers = _settings(scan_workers=4, prefilter_candle_limit=40)
@@ -24,7 +29,7 @@ class DashboardTests(unittest.TestCase):
 
 
 def _settings(scan_workers: int, prefilter_candle_limit: int):
-    return SimpleNamespace(
+        return SimpleNamespace(
         data_mode="coinbase",
         prefilter_limit=100,
         deep_scan_limit=20,
@@ -37,6 +42,9 @@ def _settings(scan_workers: int, prefilter_candle_limit: int):
         telegram_min_signal="watch",
         scan_workers=scan_workers,
         prefilter_candle_limit=prefilter_candle_limit,
+        scalp_scan_limit=20,
+        scalp_candle_limit=240,
+        scalp_min_volume_24h_usd=25_000_000,
     )
 
 

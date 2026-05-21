@@ -27,6 +27,9 @@ class SettingsTests(unittest.TestCase):
             "REQUIRE_WATCH_BEFORE_ENTER",
             "ACTIVE_SETUP_TTL_MINUTES",
             "MAX_ATR_PCT",
+            "SCALP_SCAN_LIMIT",
+            "SCALP_CANDLE_LIMIT",
+            "SCALP_MIN_VOLUME_24H_USD",
         ]:
             os.environ.pop(name, None)
         os.environ["DISCOVERY_LIMIT"] = "100"
@@ -51,6 +54,9 @@ class SettingsTests(unittest.TestCase):
             "REQUIRE_WATCH_BEFORE_ENTER",
             "ACTIVE_SETUP_TTL_MINUTES",
             "MAX_ATR_PCT",
+            "SCALP_SCAN_LIMIT",
+            "SCALP_CANDLE_LIMIT",
+            "SCALP_MIN_VOLUME_24H_USD",
         ]:
             os.environ.pop(name, None)
 
@@ -80,6 +86,9 @@ class SettingsTests(unittest.TestCase):
         self.assertFalse(settings.require_watch_before_enter)
         self.assertEqual(settings.active_setup_ttl_minutes, 240)
         self.assertEqual(settings.max_atr_pct, 8)
+        self.assertEqual(settings.scalp_scan_limit, 20)
+        self.assertEqual(settings.scalp_candle_limit, 240)
+        self.assertEqual(settings.scalp_min_volume_24h_usd, 25_000_000)
 
 
 if __name__ == "__main__":
