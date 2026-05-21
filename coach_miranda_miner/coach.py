@@ -292,7 +292,7 @@ class CoachMirandaMiner:
         self._scan_cache_lock = Lock()
         try:
             market_regime = self.gatekeeper.market_regime()
-            candidates = self.discovery.discover(self.settings.prefilter_limit)
+            candidates = self._discover_scalp_candidates()
         except (CcxtError, requests.RequestException, ValueError) as exc:
             return (
                 ScanSummary(
@@ -372,6 +372,43 @@ class CoachMirandaMiner:
             worker_count=worker_count,
         )
         return summary, results
+
+    def _discover_scalp_candidates(self) -> list[Candidate]:
+        limit = max(
+            getattr(self.settings, "scalp_universe_limit", self.settings.prefilter_limit),
+            getattr(self.settings, "scalp_scan_limit", 50),
+        )
+        candidates: list[Candidate] = []
+        seen: set[str] = set()
+        for exchange_id in self.settings.exchange_ids:
+            for ticker in self.router.fetch_tickers(exchange_id):
+                if not ticker.symbol.endswith(f"/{self.settings.quote_currency}"):
+                    continue
+                if ticker.symbol in seen:
+                    continue
+                if ticker.quote_volume is not None and ticker.quote_volume < self.settings.scalp_min_volume_24h_usd:
+                    continue
+                base, quote = ticker.symbol.split("/")
+                route = self.router.first_available_route(base, self.settings.quote_currency)
+                if route is None:
+                    continue
+                route_exchange_id, route_symbol = route
+                seen.add(route_symbol)
+                candidates.append(
+                    Candidate(
+                        asset=Asset(symbol=route_symbol, base=base, quote=quote),
+                        exchange_id=route_exchange_id,
+                        route_symbol=route_symbol,
+                        reason="Scalp universe selected by 24h volume and OI/movement ranking.",
+                        volume_24h_usd=ticker.quote_volume,
+                        trading_link=ExchangeRouter.trading_link(route_exchange_id, route_symbol),
+                    )
+                )
+                if len(candidates) >= limit:
+                    return candidates
+        if candidates:
+            return candidates[:limit]
+        return self.discovery.discover(min(limit, self.settings.prefilter_limit))
 
     def _enrich_scalp_candidate(
         self,

@@ -28,6 +28,7 @@ class SettingsTests(unittest.TestCase):
             "ACTIVE_SETUP_TTL_MINUTES",
             "MAX_ATR_PCT",
             "SCALP_SCAN_LIMIT",
+            "SCALP_UNIVERSE_LIMIT",
             "SCALP_CANDLE_LIMIT",
             "SCALP_MIN_VOLUME_24H_USD",
             "SCALP_ALERT_COOLDOWN_MINUTES",
@@ -59,6 +60,7 @@ class SettingsTests(unittest.TestCase):
             "ACTIVE_SETUP_TTL_MINUTES",
             "MAX_ATR_PCT",
             "SCALP_SCAN_LIMIT",
+            "SCALP_UNIVERSE_LIMIT",
             "SCALP_CANDLE_LIMIT",
             "SCALP_MIN_VOLUME_24H_USD",
             "SCALP_ALERT_COOLDOWN_MINUTES",
@@ -94,9 +96,10 @@ class SettingsTests(unittest.TestCase):
         self.assertFalse(settings.require_watch_before_enter)
         self.assertEqual(settings.active_setup_ttl_minutes, 240)
         self.assertEqual(settings.max_atr_pct, 8)
-        self.assertEqual(settings.scalp_scan_limit, 50)
+        self.assertEqual(settings.scalp_scan_limit, 100)
+        self.assertEqual(settings.scalp_universe_limit, 250)
         self.assertEqual(settings.scalp_candle_limit, 240)
-        self.assertEqual(settings.scalp_min_volume_24h_usd, 25_000_000)
+        self.assertEqual(settings.scalp_min_volume_24h_usd, 5_000_000)
         self.assertEqual(settings.scalp_alert_cooldown_minutes, 45)
         self.assertEqual(settings.scalp_min_atr_pct, 0.12)
         self.assertEqual(settings.scalp_max_atr_pct, 2.8)

@@ -61,7 +61,13 @@ def main() -> None:
         )
         discovery_limit = st.slider("Top universe", 1, 100, min(base_settings.prefilter_limit, 100))
         deep_scan_limit = st.slider("Deep analysis limit", 1, 30, min(base_settings.deep_scan_limit, 30))
-        scalp_scan_limit = st.slider("Scalp scan limit", 5, 100, min(base_settings.scalp_scan_limit, 100))
+        scalp_universe_limit = st.slider(
+            "Scalp universe",
+            20,
+            300,
+            min(base_settings.scalp_universe_limit, 300),
+        )
+        scalp_scan_limit = st.slider("Scalp scan limit", 5, 150, min(base_settings.scalp_scan_limit, 150))
         candle_limit = st.slider("Candles per timeframe", 80, 300, base_settings.candle_limit)
         auto_refresh = st.checkbox("Auto scan", value=base_settings.auto_scan_enabled)
         refresh_seconds = st.selectbox(
@@ -86,6 +92,7 @@ def main() -> None:
         prefilter_limit=discovery_limit,
         deep_scan_limit=deep_scan_limit,
         scalp_scan_limit=scalp_scan_limit,
+        scalp_universe_limit=scalp_universe_limit,
         candle_limit=candle_limit,
         render_charts=False,
         auto_scan_enabled=auto_refresh,
@@ -1260,6 +1267,7 @@ def _scan_cache_key(settings: Settings) -> tuple:
         settings.scan_workers,
         settings.prefilter_candle_limit,
         getattr(settings, "scalp_scan_limit", 20),
+        getattr(settings, "scalp_universe_limit", 250),
         getattr(settings, "scalp_candle_limit", 240),
         getattr(settings, "scalp_min_volume_24h_usd", 25_000_000),
         getattr(settings, "scalp_alert_cooldown_minutes", 45),

@@ -68,6 +68,7 @@ class Settings:
     active_setup_ttl_minutes: int
     alert_cooldown_minutes: int
     scalp_scan_limit: int
+    scalp_universe_limit: int
     scalp_candle_limit: int
     scalp_min_volume_24h_usd: float
     scalp_alert_cooldown_minutes: int
@@ -143,9 +144,10 @@ class Settings:
             require_watch_before_enter=_bool(os.getenv("REQUIRE_WATCH_BEFORE_ENTER", "false")),
             active_setup_ttl_minutes=int(os.getenv("ACTIVE_SETUP_TTL_MINUTES", "240")),
             alert_cooldown_minutes=int(os.getenv("ALERT_COOLDOWN_MINUTES", "180")),
-            scalp_scan_limit=int(os.getenv("SCALP_SCAN_LIMIT", "50")),
+            scalp_scan_limit=int(os.getenv("SCALP_SCAN_LIMIT", "100")),
+            scalp_universe_limit=int(os.getenv("SCALP_UNIVERSE_LIMIT", "250")),
             scalp_candle_limit=int(os.getenv("SCALP_CANDLE_LIMIT", "240")),
-            scalp_min_volume_24h_usd=float(os.getenv("SCALP_MIN_VOLUME_24H_USD", "25000000")),
+            scalp_min_volume_24h_usd=float(os.getenv("SCALP_MIN_VOLUME_24H_USD", "5000000")),
             scalp_alert_cooldown_minutes=int(os.getenv("SCALP_ALERT_COOLDOWN_MINUTES", "45")),
             scalp_min_atr_pct=float(os.getenv("SCALP_MIN_ATR_PCT", "0.12")),
             scalp_max_atr_pct=float(os.getenv("SCALP_MAX_ATR_PCT", "2.8")),

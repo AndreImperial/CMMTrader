@@ -38,6 +38,12 @@ services:
         value: "900"
       - key: OI_LIMIT
         value: "8"
+      - key: SCALP_SCAN_LIMIT
+        value: "100"
+      - key: SCALP_UNIVERSE_LIMIT
+        value: "250"
+      - key: SCALP_MIN_VOLUME_24H_USD
+        value: "5000000"
       - key: MIN_CONFIDENCE
         value: "0.72"
       - key: MIN_RISK_REWARD
