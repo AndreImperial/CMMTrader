@@ -14,6 +14,7 @@ import requests
 from .alerts import AlertFormatter, alert_grade, grade_rank, telegram_buttons
 from .analyzer import OpenAIVisionAnalyzer, RuleBasedAnalyzer
 from .backtest import (
+    AlmaCciScalpBacktester,
     BacktestResult,
     MirandaStrategyBacktester,
     MovingAverageBacktester,
@@ -38,6 +39,7 @@ from .journal import Journal
 from .market_cap import CoinMarketCapProvider, StaticMarketCapProvider
 from .miner import SignalMiner
 from .models import (
+    Asset,
     Candidate,
     IntelligencePack,
     MarketRegime,
@@ -146,7 +148,12 @@ class CoachMirandaMiner:
             settings.oi_bases,
             settings.coinalyze_api_key,
         )
-        self.scalper = AlmaCciScalper(self.validator)
+        self.scalper = AlmaCciScalper(
+            self.validator,
+            min_atr_pct=settings.scalp_min_atr_pct,
+            max_atr_pct=settings.scalp_max_atr_pct,
+            cross_fresh_bars=settings.scalp_cross_fresh_bars,
+        )
 
     def scan_setups(self) -> tuple[ScanSummary, list[SetupScore], list[DeepScanResult]]:
         started_at = time.perf_counter()
@@ -410,6 +417,7 @@ class CoachMirandaMiner:
             candles=result.candles,
             thesis=result.thesis,
             validation=result.validation,
+            quality=result.quality,
             alert_sent=alert_sent,
         )
 
@@ -613,6 +621,7 @@ class CoachMirandaMiner:
         return latest / average
 
     def _cached_ticker(self, exchange_id: str, symbol: str):
+        self._ensure_scan_cache()
         cache_key = (exchange_id, symbol)
         with self._scan_cache_lock:
             if cache_key in self._scan_ticker_cache:
@@ -623,6 +632,7 @@ class CoachMirandaMiner:
         return ticker
 
     def _cached_candles(self, exchange_id: str, symbol: str, timeframe: str, limit: int):
+        self._ensure_scan_cache()
         cache_key = (exchange_id, symbol, timeframe, limit)
         with self._scan_cache_lock:
             if cache_key in self._scan_candle_cache:
@@ -631,6 +641,14 @@ class CoachMirandaMiner:
         with self._scan_cache_lock:
             self._scan_candle_cache[cache_key] = candles.copy()
         return candles.copy()
+
+    def _ensure_scan_cache(self) -> None:
+        if not hasattr(self, "_scan_ticker_cache"):
+            self._scan_ticker_cache = {}
+        if not hasattr(self, "_scan_candle_cache"):
+            self._scan_candle_cache = {}
+        if not hasattr(self, "_scan_cache_lock"):
+            self._scan_cache_lock = Lock()
 
     def _build_discovery(self):
         if self.settings.discovery_mode == "cmc" and self.settings.coinmarketcap_api_key:
@@ -753,14 +771,21 @@ class CoachMirandaMiner:
         if thesis.signal == SignalState.ENTER and getattr(self.settings, "require_watch_before_enter", False):
             if not has_watch:
                 return False
+        cooldown_minutes = (
+            getattr(self.settings, "scalp_alert_cooldown_minutes", self.settings.alert_cooldown_minutes)
+            if thesis.setup.value == "alma_cci_scalp"
+            else self.settings.alert_cooldown_minutes
+        )
         if self.journal.alert_sent_recently(
             thesis.symbol,
             thesis.setup.value,
             thesis.signal.value,
-            self.settings.alert_cooldown_minutes,
+            cooldown_minutes,
         ):
             return False
         prefix = "Coach Miranda Alert\n"
+        if thesis.setup.value == "alma_cci_scalp":
+            prefix = "Coach Miranda SCALP Alert\n"
         if thesis.signal == SignalState.WATCH:
             prefix += "Manual review: setup is forming, not confirmed entry.\n\n"
         if thesis.signal == SignalState.ENTER:
@@ -898,13 +923,36 @@ class CoachMirandaMiner:
         exchange_id = self.settings.exchange_id
         if route is not None:
             exchange_id, route_symbol = route
-        candles = self.router.fetch_candles(
-            exchange_id,
-            route_symbol,
-            route_timeframe,
-            self.settings.candle_limit,
-        )
+        if strategy == "scalp" and route_timeframe == "3m":
+            candidate = Candidate(
+                asset=Asset(symbol=route_symbol, base=base, quote=self.settings.quote_currency),
+                exchange_id=exchange_id,
+                route_symbol=route_symbol,
+                reason="backtest",
+            )
+            candles = self._scalp_candles(candidate, "3m")
+        else:
+            candles = self.router.fetch_candles(
+                exchange_id,
+                route_symbol,
+                route_timeframe,
+                self.settings.candle_limit,
+            )
         self._record_candle_sample(route_symbol, route_timeframe, candles, source=self.settings.data_mode)
+        if strategy == "scalp":
+            tester = AlmaCciScalpBacktester(
+                StrategyBacktestConfig(
+                    fee_bps=self.settings.backtest_fee_bps,
+                    slippage_bps=self.settings.backtest_slippage_bps,
+                    stop_atr_multiple=self.settings.backtest_stop_atr_multiple,
+                    target_r_multiple=max(self.settings.backtest_target_r_multiple, self.settings.min_risk_reward),
+                    allow_longs=side in {"both", "long"},
+                    allow_shorts=side in {"both", "short"},
+                    min_risk_reward=self.settings.min_risk_reward,
+                    max_hold_bars=12,
+                )
+            )
+            return tester.run(route_symbol, route_timeframe, candles)
         if strategy == "miranda":
             allow_longs = side in {"both", "long"}
             allow_shorts = side in {"both", "short"}
@@ -969,6 +1017,22 @@ class CoachMirandaMiner:
         side: str,
         candles: pd.DataFrame,
     ) -> BacktestResult:
+        if strategy == "scalp":
+            return AlmaCciScalpBacktester(
+                StrategyBacktestConfig(
+                    fee_bps=self.settings.backtest_fee_bps,
+                    slippage_bps=self.settings.backtest_slippage_bps,
+                    stop_atr_multiple=self.settings.backtest_stop_atr_multiple,
+                    target_r_multiple=max(
+                        self.settings.backtest_target_r_multiple,
+                        self.settings.min_risk_reward,
+                    ),
+                    allow_longs=side in {"both", "long"},
+                    allow_shorts=side in {"both", "short"},
+                    min_risk_reward=self.settings.min_risk_reward,
+                    max_hold_bars=12,
+                )
+            ).run(symbol, timeframe, candles)
         if strategy == "miranda":
             return MirandaStrategyBacktester(
                 StrategyBacktestConfig(

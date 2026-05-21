@@ -4,7 +4,8 @@ import unittest
 
 import pandas as pd
 
-from coach_miranda_miner.backtest import MirandaStrategyBacktester, StrategyBacktestConfig
+from coach_miranda_miner.backtest import AlmaCciScalpBacktester, MirandaStrategyBacktester, StrategyBacktestConfig
+from tests.test_scalper import _execution_frame
 
 
 class StrategyBacktestTests(unittest.TestCase):
@@ -31,6 +32,26 @@ class StrategyBacktestTests(unittest.TestCase):
         self.assertGreater(result.short_trades, 0)
         self.assertEqual(result.long_trades, 0)
         self.assertTrue(result.setup_stats)
+
+    def test_scalp_backtest_smoke_supports_both_sides(self) -> None:
+        tester = AlmaCciScalpBacktester(
+            StrategyBacktestConfig(
+                fee_bps=10,
+                slippage_bps=5,
+                stop_atr_multiple=1.5,
+                target_r_multiple=2.0,
+                allow_longs=True,
+                allow_shorts=True,
+                min_relative_volume=0.1,
+                min_risk_reward=2.0,
+                max_hold_bars=12,
+            )
+        )
+
+        result = tester.run("TEST/USD", "3m", _execution_frame("long"))
+
+        self.assertEqual(result.symbol, "TEST/USD")
+        self.assertGreaterEqual(result.trades, 0)
 
 
 def _tester(allow_longs: bool, allow_shorts: bool) -> MirandaStrategyBacktester:

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from .indicators import atr, macd, moving_average, relative_volume, rsi
+from .indicators import alma, atr, cci, ema, macd, moving_average, relative_volume, rsi
 
 
 @dataclass(frozen=True)
@@ -438,3 +438,119 @@ def _setup_stats(setup_returns: dict[str, list[tuple[float, str]]]) -> dict[str,
             "short_trades": sum(1 for _, direction in values if direction == "short"),
         }
     return stats
+
+
+class AlmaCciScalpBacktester:
+    """Approximation of the 3m EMA9/ALMA20 plus CCI20 scalp rules."""
+
+    def __init__(self, config: StrategyBacktestConfig) -> None:
+        self.config = config
+        self.fee_rate = config.fee_bps / 10_000
+        self.slippage_rate = config.slippage_bps / 10_000
+
+    def run(self, symbol: str, timeframe: str, candles: pd.DataFrame) -> BacktestResult:
+        frame = candles.copy().reset_index(drop=True)
+        frame["ema_9"] = ema(frame["close"], 9)
+        frame["alma_20"] = alma(frame["close"], 20, 0.8, 8)
+        frame["cci_20"] = cci(frame, 20)
+        frame["atr"] = atr(frame, 14)
+        frame["relative_volume"] = relative_volume(frame["volume"], 20)
+
+        returns: list[float] = []
+        setup_returns: dict[str, list[tuple[float, str]]] = {}
+        sample_trades: list[dict] = []
+        equity = 1.0
+        peak = 1.0
+        max_drawdown = 0.0
+        wins = losses = long_trades = short_trades = 0
+        index = 40
+        while index < len(frame) - 2:
+            signal = self._signal_at(frame, index)
+            if signal is None:
+                index += 1
+                continue
+            exit_index, exit_price, exit_reason = MirandaStrategyBacktester(self.config)._resolve_exit(
+                frame,
+                index + 1,
+                signal,
+            )
+            trade_return = MirandaStrategyBacktester(self.config)._trade_return(signal, exit_price)
+            returns.append(trade_return)
+            setup_returns.setdefault(signal.setup, []).append((trade_return, signal.direction))
+            equity *= max(0.0, 1 + trade_return)
+            peak = max(peak, equity)
+            max_drawdown = max(max_drawdown, (peak - equity) / peak if peak else 0.0)
+            wins += int(trade_return > 0)
+            losses += int(trade_return <= 0)
+            long_trades += int(signal.direction == "long")
+            short_trades += int(signal.direction == "short")
+            if len(sample_trades) < 10:
+                sample_trades.append(
+                    {
+                        "direction": signal.direction,
+                        "setup": signal.setup,
+                        "entry_time": str(frame.iloc[index]["timestamp"]),
+                        "entry": signal.entry,
+                        "exit": exit_price,
+                        "return_pct": trade_return * 100,
+                        "exit_reason": exit_reason,
+                    }
+                )
+            index = max(exit_index + 1, index + 1)
+
+        trades = wins + losses
+        gross_profit = sum(value for value in returns if value > 0)
+        gross_loss = abs(sum(value for value in returns if value < 0))
+        return BacktestResult(
+            symbol=symbol,
+            timeframe=timeframe,
+            trades=trades,
+            wins=wins,
+            losses=losses,
+            win_rate=wins / trades if trades else 0.0,
+            total_return_pct=(equity - 1) * 100,
+            max_drawdown_pct=max_drawdown * 100,
+            profit_factor=gross_profit / gross_loss if gross_loss > 0 else 99.0 if gross_profit > 0 else 0.0,
+            expectancy_pct=(sum(returns) / trades) * 100 if trades else 0.0,
+            average_win_pct=(gross_profit / wins) * 100 if wins else 0.0,
+            average_loss_pct=(gross_loss / losses) * 100 if losses else 0.0,
+            long_trades=long_trades,
+            short_trades=short_trades,
+            sample_trades=sample_trades,
+            setup_stats=_setup_stats(setup_returns),
+        )
+
+    def _signal_at(self, frame: pd.DataFrame, index: int) -> _Signal | None:
+        row = frame.iloc[index]
+        if row[["ema_9", "alma_20", "cci_20", "atr", "relative_volume"]].isna().any():
+            return None
+        if float(row["relative_volume"]) < self.config.min_relative_volume:
+            return None
+        prior = frame.iloc[index - 1]
+        long_cross = float(prior["ema_9"]) <= float(prior["alma_20"]) and float(row["ema_9"]) > float(row["alma_20"])
+        short_cross = float(prior["ema_9"]) >= float(prior["alma_20"]) and float(row["ema_9"]) < float(row["alma_20"])
+        long_cci = float(prior["cci_20"]) <= -100 < float(row["cci_20"])
+        short_cci = float(prior["cci_20"]) >= 100 > float(row["cci_20"])
+        if self.config.allow_longs and long_cross and long_cci:
+            return self._build_signal("long", float(row["close"]), float(row["atr"]))
+        if self.config.allow_shorts and short_cross and short_cci:
+            return self._build_signal("short", float(row["close"]), float(row["atr"]))
+        return None
+
+    def _build_signal(self, direction: str, close: float, atr_value: float) -> _Signal | None:
+        risk = atr_value * self.config.stop_atr_multiple
+        if risk <= 0:
+            return None
+        if direction == "long":
+            entry = close * (1 + self.slippage_rate)
+            stop = entry - risk
+            target = entry + risk * self.config.target_r_multiple
+            rr = (target - entry) / (entry - stop)
+        else:
+            entry = close * (1 - self.slippage_rate)
+            stop = entry + risk
+            target = entry - risk * self.config.target_r_multiple
+            rr = (entry - target) / (stop - entry)
+        if rr < self.config.min_risk_reward:
+            return None
+        return _Signal(direction, "alma_cci_scalp", entry, stop, target, rr)

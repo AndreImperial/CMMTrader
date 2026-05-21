@@ -30,6 +30,10 @@ class SettingsTests(unittest.TestCase):
             "SCALP_SCAN_LIMIT",
             "SCALP_CANDLE_LIMIT",
             "SCALP_MIN_VOLUME_24H_USD",
+            "SCALP_ALERT_COOLDOWN_MINUTES",
+            "SCALP_MIN_ATR_PCT",
+            "SCALP_MAX_ATR_PCT",
+            "SCALP_CROSS_FRESH_BARS",
         ]:
             os.environ.pop(name, None)
         os.environ["DISCOVERY_LIMIT"] = "100"
@@ -57,6 +61,10 @@ class SettingsTests(unittest.TestCase):
             "SCALP_SCAN_LIMIT",
             "SCALP_CANDLE_LIMIT",
             "SCALP_MIN_VOLUME_24H_USD",
+            "SCALP_ALERT_COOLDOWN_MINUTES",
+            "SCALP_MIN_ATR_PCT",
+            "SCALP_MAX_ATR_PCT",
+            "SCALP_CROSS_FRESH_BARS",
         ]:
             os.environ.pop(name, None)
 
@@ -89,6 +97,10 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.scalp_scan_limit, 50)
         self.assertEqual(settings.scalp_candle_limit, 240)
         self.assertEqual(settings.scalp_min_volume_24h_usd, 25_000_000)
+        self.assertEqual(settings.scalp_alert_cooldown_minutes, 45)
+        self.assertEqual(settings.scalp_min_atr_pct, 0.12)
+        self.assertEqual(settings.scalp_max_atr_pct, 2.8)
+        self.assertEqual(settings.scalp_cross_fresh_bars, 3)
 
 
 if __name__ == "__main__":

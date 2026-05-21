@@ -70,6 +70,10 @@ class Settings:
     scalp_scan_limit: int
     scalp_candle_limit: int
     scalp_min_volume_24h_usd: float
+    scalp_alert_cooldown_minutes: int
+    scalp_min_atr_pct: float
+    scalp_max_atr_pct: float
+    scalp_cross_fresh_bars: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -142,6 +146,10 @@ class Settings:
             scalp_scan_limit=int(os.getenv("SCALP_SCAN_LIMIT", "50")),
             scalp_candle_limit=int(os.getenv("SCALP_CANDLE_LIMIT", "240")),
             scalp_min_volume_24h_usd=float(os.getenv("SCALP_MIN_VOLUME_24H_USD", "25000000")),
+            scalp_alert_cooldown_minutes=int(os.getenv("SCALP_ALERT_COOLDOWN_MINUTES", "45")),
+            scalp_min_atr_pct=float(os.getenv("SCALP_MIN_ATR_PCT", "0.12")),
+            scalp_max_atr_pct=float(os.getenv("SCALP_MAX_ATR_PCT", "2.8")),
+            scalp_cross_fresh_bars=int(os.getenv("SCALP_CROSS_FRESH_BARS", "3")),
         )
 
 

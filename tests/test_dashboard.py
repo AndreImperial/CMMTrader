@@ -45,6 +45,10 @@ def _settings(scan_workers: int, prefilter_candle_limit: int):
         scalp_scan_limit=50,
         scalp_candle_limit=240,
         scalp_min_volume_24h_usd=25_000_000,
+        scalp_alert_cooldown_minutes=45,
+        scalp_min_atr_pct=0.12,
+        scalp_max_atr_pct=2.8,
+        scalp_cross_fresh_bars=3,
     )
 
 

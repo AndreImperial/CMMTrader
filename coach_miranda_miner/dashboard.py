@@ -287,10 +287,17 @@ def render_scalper(
         {
             "rank": result.score.rank,
             "symbol": result.candidate.route_symbol,
+            "grade": result.quality.grade,
             "signal": result.thesis.signal.value,
             "direction": result.thesis.direction,
             "confidence": result.thesis.confidence,
             "score": result.score.score,
+            "oi_price_read": result.quality.oi_price_read,
+            "bias_strength": result.quality.bias_strength,
+            "structure": result.quality.structure_strength,
+            "atr_pct": result.quality.atr_pct,
+            "cross_age": result.quality.cross_age_bars,
+            "cci_slope": result.quality.cci_slope,
             "entry": result.thesis.entry,
             "stop": result.thesis.stop_loss,
             "target": result.thesis.targets[0] if result.thesis.targets else None,
@@ -302,6 +309,7 @@ def render_scalper(
         }
         for result in results
     ]
+    _render_scalp_summary_sections(results)
     if rows:
         st.dataframe(
             pd.DataFrame(rows),
@@ -310,6 +318,8 @@ def render_scalper(
             column_config={
                 "confidence": st.column_config.NumberColumn("Confidence", format="%.2f"),
                 "score": st.column_config.NumberColumn("Score", format="%.1f"),
+                "atr_pct": st.column_config.NumberColumn("3m ATR %", format="%.2f%%"),
+                "cci_slope": st.column_config.NumberColumn("CCI Slope", format="%.1f"),
                 "entry": st.column_config.NumberColumn("Entry", format="%.6f"),
                 "stop": st.column_config.NumberColumn("Stop", format="%.6f"),
                 "target": st.column_config.NumberColumn("Target", format="%.6f"),
@@ -346,7 +356,10 @@ def render_scalper(
             detail_cols[0].metric("Signal", result.thesis.signal.value.upper())
             detail_cols[1].metric("Direction", result.thesis.direction.upper())
             detail_cols[2].metric("Confidence", f"{result.thesis.confidence:.0%}")
-            detail_cols[3].metric("R/R", result.thesis.risk_reward or "n/a")
+            detail_cols[3].metric("Grade", result.quality.grade)
+            st.write("Quality")
+            for item in result.quality.reasons:
+                st.write(f"- {item}")
             st.write("Entry", _fmt(result.thesis.entry))
             st.write("Stop", _fmt(result.thesis.stop_loss))
             st.write("Target", ", ".join(_fmt(item) for item in result.thesis.targets) or "n/a")
@@ -358,6 +371,66 @@ def render_scalper(
             else:
                 for reason in result.validation.reasons:
                     st.warning(reason)
+
+
+def _render_scalp_summary_sections(results) -> None:
+    if not results:
+        return
+    top_oi = sorted(
+        results,
+        key=lambda item: (
+            abs(item.candidate.open_interest_change_24h_pct or 0.0),
+            item.candidate.volume_24h_usd or 0.0,
+        ),
+        reverse=True,
+    )[:10]
+    enter_rows = [item for item in results if item.thesis.signal.value == "enter"]
+    watch_rows = [item for item in results if item.thesis.signal.value == "watch"]
+    rejected_rows = [item for item in results if item.thesis.signal.value in {"reject", "wait"}]
+    cols = st.columns(4)
+    cols[0].metric("Top OI Movers", len(top_oi))
+    cols[1].metric("ENTER Setups", len(enter_rows))
+    cols[2].metric("WATCH Setups", len(watch_rows))
+    cols[3].metric("Rejected/Waiting", len(rejected_rows))
+    with st.expander("Top OI Movers Feeding The Scalper", expanded=True):
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "symbol": item.candidate.route_symbol,
+                        "oi_change_24h_pct": item.candidate.open_interest_change_24h_pct,
+                        "volume_24h_usd": item.candidate.volume_24h_usd,
+                        "oi_price_read": item.quality.oi_price_read,
+                        "grade": item.quality.grade,
+                        "signal": item.thesis.signal.value,
+                    }
+                    for item in top_oi
+                ]
+            ),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "oi_change_24h_pct": st.column_config.NumberColumn("OI 24h %", format="%.2f%%"),
+                "volume_24h_usd": st.column_config.NumberColumn("24h Volume", format="$%.0f"),
+            },
+        )
+    if rejected_rows:
+        with st.expander("Rejected / Waiting Reasons"):
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "symbol": item.candidate.route_symbol,
+                            "signal": item.thesis.signal.value,
+                            "reason": item.thesis.invalidation_reason or "conditions not aligned",
+                            "oi_price_read": item.quality.oi_price_read,
+                        }
+                        for item in rejected_rows[:25]
+                    ]
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
 
 
 def render_prefilter(scores) -> None:
@@ -845,9 +918,9 @@ def render_backtest(coach: CoachMirandaMiner) -> None:
     with cols[0]:
         symbol = st.text_input("Symbol", value=coach.settings.symbol.replace("USDT", "USD"))
     with cols[1]:
-        timeframe = st.selectbox("Timeframe", ["15m", "1h", "4h", "1d"], index=0)
+        timeframe = st.selectbox("Timeframe", ["3m", "5m", "15m", "1h", "4h", "1d"], index=2)
     with cols[2]:
-        strategy = st.selectbox("Strategy", ["miranda", "ma"], index=0)
+        strategy = st.selectbox("Strategy", ["miranda", "scalp", "ma"], index=0)
     with cols[3]:
         side = st.selectbox("Side", ["both", "long", "short"], index=0)
 
@@ -1176,6 +1249,10 @@ def _scan_cache_key(settings: Settings) -> tuple:
         getattr(settings, "scalp_scan_limit", 20),
         getattr(settings, "scalp_candle_limit", 240),
         getattr(settings, "scalp_min_volume_24h_usd", 25_000_000),
+        getattr(settings, "scalp_alert_cooldown_minutes", 45),
+        getattr(settings, "scalp_min_atr_pct", 0.12),
+        getattr(settings, "scalp_max_atr_pct", 2.8),
+        getattr(settings, "scalp_cross_fresh_bars", 3),
     )
 
 

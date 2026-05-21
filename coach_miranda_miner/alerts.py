@@ -33,10 +33,15 @@ class AlertFormatter:
             signal_note = f"Status: ENTER - rules confirm {thesis.direction.upper()} entry conditions.\n"
         tv_link = tradingview_link(candidate.route_symbol)
         trade_link = candidate.trading_link or "n/a"
+        signal_label = (
+            f"SCALP {thesis.signal.value.upper()} {thesis.direction.upper()}"
+            if thesis.setup.value == "alma_cci_scalp"
+            else f"{thesis.signal.value.upper()} {thesis.direction.upper()}"
+        )
         return (
             f"Coach Miranda Miner\n"
             f"Symbol: {candidate.route_symbol} on {candidate.exchange_id}\n"
-            f"Setup: {thesis.setup.value} | Signal: {thesis.signal.value.upper()} {thesis.direction.upper()} | "
+            f"Setup: {thesis.setup.value} | Signal: {signal_label} | "
             f"{status} | Grade: {quality}\n"
             f"{signal_note}"
             f"Direction: {thesis.direction} | Confidence: {thesis.confidence:.2f}\n"
