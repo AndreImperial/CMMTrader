@@ -192,6 +192,28 @@ ALERT_COOLDOWN_MINUTES=180
 The alert system does not place trades. It only notifies you so you can review
 and trade manually.
 
+### Free Persistent Alerts With GitHub Actions
+
+This repo includes `.github/workflows/persistent-alerts.yml`. It runs every 15
+minutes and calls:
+
+```text
+python -m coach_miranda_miner alert-once --mode both
+```
+
+Set these GitHub repository secrets:
+
+```text
+TELEGRAM_BOT_TOKEN
+TELEGRAM_CHAT_ID
+COINALYZE_API_KEY
+```
+
+The scheduled workflow defaults to `TELEGRAM_MIN_SIGNAL=enter` and
+`MIN_ALERT_GRADE=B`, so Telegram only receives better confirmed alerts. It
+restores and saves a small SQLite journal cache so duplicate alert cooldowns can
+survive across scheduled runs.
+
 Alerts now keep a small lifecycle journal:
 
 - WATCH setups are stored as active setups.

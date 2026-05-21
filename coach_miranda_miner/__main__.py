@@ -19,6 +19,13 @@ def build_parser() -> argparse.ArgumentParser:
     price.add_argument("--symbol", default=None)
     alerts = subparsers.add_parser("alerts", help="Run Telegram alert scans forever")
     alerts.add_argument("--interval", type=int, default=None)
+    alert_once = subparsers.add_parser("alert-once", help="Run one Telegram alert scan for schedulers")
+    alert_once.add_argument(
+        "--mode",
+        choices=["intraday", "scalp", "both"],
+        default="both",
+        help="Which scanner to run before exiting.",
+    )
     loop = subparsers.add_parser("loop", help="Run scans forever on a fixed interval")
     loop.add_argument("--interval", type=int, default=None)
     backtest = subparsers.add_parser("backtest", help="Run a strategy backtest")
@@ -113,6 +120,8 @@ def main() -> None:
             print(coach.scan_for_alerts())
             print(f"\nNext alert scan in {interval} seconds.")
             time.sleep(interval)
+    if args.command == "alert-once":
+        print(_run_alert_once(coach, args.mode))
     if args.command == "loop":
         interval = args.interval or settings.scan_interval_seconds
         while True:
@@ -122,6 +131,31 @@ def main() -> None:
                 print(message)
             print(f"\nNext scan in {interval} seconds.")
             time.sleep(interval)
+
+
+def _run_alert_once(coach: CoachMirandaMiner, mode: str) -> str:
+    lines = [f"Coach Miranda scheduled alert scan: {mode}"]
+    if mode in {"intraday", "both"}:
+        summary, _, results = coach.scan_setups()
+        sent = sum(1 for result in results if result.alert_sent)
+        lines.append(
+            "Intraday: "
+            f"scanned {summary.candidates_scanned}, analyzed {summary.deep_analyzed}, "
+            f"alerts sent {sent}, failed {summary.failed_symbols}."
+        )
+        for warning in summary.warnings[:5]:
+            lines.append(f"Intraday warning: {warning}")
+    if mode in {"scalp", "both"}:
+        summary, results = coach.scan_scalps()
+        sent = sum(1 for result in results if result.alert_sent)
+        lines.append(
+            "Scalp: "
+            f"scanned {summary.candidates_scanned}, analyzed {summary.deep_analyzed}, "
+            f"alerts sent {sent}, failed {summary.failed_symbols}."
+        )
+        for warning in summary.warnings[:5]:
+            lines.append(f"Scalp warning: {warning}")
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":
