@@ -27,7 +27,7 @@ class AlmaCciScalper:
         alma_offset: float = 0.8,
         alma_sigma: float = 8.0,
         ema_length: int = 9,
-        cci_length: int = 200,
+        cci_length: int = 20,
         target_r_multiple: float = 2.0,
     ) -> None:
         self.validator = validator
@@ -62,7 +62,7 @@ class AlmaCciScalper:
         frame = candles.copy()
         frame["ema_9"] = ema(frame["close"], self.ema_length)
         frame["alma_20"] = alma(frame["close"], self.alma_length, self.alma_offset, self.alma_sigma)
-        frame["cci_200"] = cci(frame, self.cci_length)
+        frame["cci_20"] = cci(frame, self.cci_length)
         frame["relative_volume"] = relative_volume(frame["volume"], 20)
         return frame
 
@@ -75,8 +75,8 @@ class AlmaCciScalper:
                 signal=SignalState.WAIT,
                 direction="none",
                 confidence=0.0,
-                invalidation_reason="Not enough candles for CCI 200 scalp confirmation.",
-                evidence=["Needs 15m, 5m, and 3m candles with at least 200 bars."],
+                invalidation_reason="Not enough candles for CCI 20 scalp confirmation.",
+                evidence=["Needs 15m, 5m, and 3m candles with at least 20 bars."],
             )
 
         bias = _bias(candles["15m"])
@@ -88,12 +88,12 @@ class AlmaCciScalper:
 
         long_cross = _crossed_above(execution["ema_9"], execution["alma_20"])
         short_cross = _crossed_below(execution["ema_9"], execution["alma_20"])
-        long_cci_cross = _crossed_above_level(execution["cci_200"], -100) or _crossed_above_level(
-            execution["cci_200"],
+        long_cci_cross = _crossed_above_level(execution["cci_20"], -100) or _crossed_above_level(
+            execution["cci_20"],
             100,
         )
-        short_cci_cross = _crossed_below_level(execution["cci_200"], 100) or _crossed_below_level(
-            execution["cci_200"],
+        short_cci_cross = _crossed_below_level(execution["cci_20"], 100) or _crossed_below_level(
+            execution["cci_20"],
             -100,
         )
         long_ready = bias == "long" and long_structure and _aligned_long(execution)
@@ -189,7 +189,7 @@ class AlmaCciScalper:
             evidence=[
                 f"15m bias, 5m structure, and 3m execution are stacked {direction}.",
                 f"3m EMA9 / ALMA(20, 0.8, 8) trigger is {trigger_text}.",
-                f"CCI 200 threshold trigger is {trigger_text}; rel volume {rel_vol:.2f}x.",
+                f"CCI 20 threshold trigger is {trigger_text}; rel volume {rel_vol:.2f}x.",
                 "Scalp model uses 15m bias, 5m structure, 3m execution.",
             ],
         )
@@ -202,7 +202,7 @@ def _scalp_score(
     candles: dict[str, pd.DataFrame],
 ) -> SetupScore:
     rel_vol = _last_float(candles["3m"]["relative_volume"])
-    cci_value = _last_float(candles["3m"]["cci_200"])
+    cci_value = _last_float(candles["3m"]["cci_20"])
     score = thesis.confidence * 70
     if thesis.signal == SignalState.ENTER:
         score += 15
@@ -210,12 +210,12 @@ def _scalp_score(
         score += min(max((rel_vol - 1.0) * 10, 0), 15)
     reasons = [
         f"Scalp signal: {thesis.signal.value.upper()} {thesis.direction.upper()}",
-        "ALMA 20 / EMA9 plus CCI 200 stack.",
+        "ALMA 20 / EMA9 plus CCI 20 stack.",
     ]
     if rel_vol is not None:
         reasons.append(f"3m relative volume {rel_vol:.2f}x.")
     if cci_value is not None:
-        reasons.append(f"3m CCI 200 is {cci_value:.1f}.")
+        reasons.append(f"3m CCI 20 is {cci_value:.1f}.")
     return SetupScore(
         symbol=candidate.route_symbol,
         rank=rank,
@@ -230,24 +230,24 @@ def _scalp_score(
 
 
 def _bias(candles: pd.DataFrame) -> str:
-    if _aligned_long(candles) and (_last_float(candles["cci_200"]) or 0) > 0:
+    if _aligned_long(candles) and (_last_float(candles["cci_20"]) or 0) > 0:
         return "long"
-    if _aligned_short(candles) and (_last_float(candles["cci_200"]) or 0) < 0:
+    if _aligned_short(candles) and (_last_float(candles["cci_20"]) or 0) < 0:
         return "short"
     return "neutral"
 
 
 def _aligned_long(candles: pd.DataFrame) -> bool:
     latest = candles.iloc[-1]
-    return _valid(latest["alma_20"], latest["ema_9"], latest["cci_200"]) and (
-        latest["ema_9"] > latest["alma_20"] and latest["cci_200"] > -100
+    return _valid(latest["alma_20"], latest["ema_9"], latest["cci_20"]) and (
+        latest["ema_9"] > latest["alma_20"] and latest["cci_20"] > -100
     )
 
 
 def _aligned_short(candles: pd.DataFrame) -> bool:
     latest = candles.iloc[-1]
-    return _valid(latest["alma_20"], latest["ema_9"], latest["cci_200"]) and (
-        latest["ema_9"] < latest["alma_20"] and latest["cci_200"] < 100
+    return _valid(latest["alma_20"], latest["ema_9"], latest["cci_20"]) and (
+        latest["ema_9"] < latest["alma_20"] and latest["cci_20"] < 100
     )
 
 

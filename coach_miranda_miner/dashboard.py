@@ -979,9 +979,9 @@ def _scalp_chart(result) -> go.Figure:
     fig.add_trace(
         go.Scatter(
             x=frame["timestamp"],
-            y=frame["cci_200"],
+            y=frame["cci_20"],
             mode="lines",
-            name="CCI 200",
+            name="CCI 20",
             yaxis="y2",
             line=dict(color="#38bdf8", width=1.4),
         )
