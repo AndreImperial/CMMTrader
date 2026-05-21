@@ -120,10 +120,13 @@ def main() -> None:
         st.session_state.pop("high_oi_cache", None)
         st.success("Scan cache cleared.")
 
-    scanner_tab, scalp_tab, oi_tab, backtest_tab, history_tab = st.tabs(
-        ["Scanner", "Scalper", "High OI", "Backtest", "History"]
+    view = st.radio(
+        "View",
+        ["Scanner", "Scalper", "High OI", "Backtest", "History"],
+        horizontal=True,
+        label_visibility="collapsed",
     )
-    with scanner_tab:
+    if view == "Scanner":
         if run_scan or auto_refresh:
             render_scan(
                 coach,
@@ -135,23 +138,23 @@ def main() -> None:
         else:
             st.info("Press Run Intraday Scan to look for intraday setups.")
 
-    with scalp_tab:
+    if view == "Scalper":
         render_scalper(
             coach,
             use_tradingview,
             cache_seconds=refresh_seconds,
         )
 
-    with oi_tab:
+    if view == "High OI":
         if show_oi:
             render_high_oi(coach, cache_seconds=refresh_seconds)
         else:
             st.info("Enable High OI + Volume in the sidebar.")
 
-    with backtest_tab:
+    if view == "Backtest":
         render_backtest(coach)
 
-    with history_tab:
+    if view == "History":
         if show_history:
             render_history(coach)
             render_outcomes(coach)
@@ -159,7 +162,7 @@ def main() -> None:
         else:
             st.info("Enable signal history in the sidebar.")
 
-    if auto_refresh:
+    if auto_refresh and view == "Scanner":
         time.sleep(refresh_seconds)
         st.rerun()
 
