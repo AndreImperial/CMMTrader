@@ -42,7 +42,7 @@ def _settings(scan_workers: int, prefilter_candle_limit: int):
         telegram_min_signal="watch",
         scan_workers=scan_workers,
         prefilter_candle_limit=prefilter_candle_limit,
-        scalp_scan_limit=20,
+        scalp_scan_limit=50,
         scalp_candle_limit=240,
         scalp_min_volume_24h_usd=25_000_000,
     )

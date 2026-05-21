@@ -86,7 +86,7 @@ class SettingsTests(unittest.TestCase):
         self.assertFalse(settings.require_watch_before_enter)
         self.assertEqual(settings.active_setup_ttl_minutes, 240)
         self.assertEqual(settings.max_atr_pct, 8)
-        self.assertEqual(settings.scalp_scan_limit, 20)
+        self.assertEqual(settings.scalp_scan_limit, 50)
         self.assertEqual(settings.scalp_candle_limit, 240)
         self.assertEqual(settings.scalp_min_volume_24h_usd, 25_000_000)
 

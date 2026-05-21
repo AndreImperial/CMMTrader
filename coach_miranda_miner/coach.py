@@ -299,11 +299,12 @@ class CoachMirandaMiner:
                 [],
             )
 
+        oi_by_base = self._coinalyze_rows_for_candidates(candidates, warnings)
         enriched: list[Candidate] = []
         failed_symbols = 0
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = {
-                executor.submit(self._enrich_scalp_candidate, candidate): candidate
+                executor.submit(self._enrich_scalp_candidate, candidate, oi_by_base): candidate
                 for candidate in candidates
             }
             done, pending = wait(futures, timeout=self.settings.fetch_timeout_seconds)
@@ -324,7 +325,7 @@ class CoachMirandaMiner:
                 future.cancel()
                 warnings.append(f"{candidate.route_symbol} scalp prefilter timed out.")
 
-        ranked = sorted(enriched, key=lambda item: item.volume_24h_usd or 0.0, reverse=True)
+        ranked = sorted(enriched, key=_scalp_universe_score, reverse=True)
         scan_limit = max(1, getattr(self.settings, "scalp_scan_limit", 20))
         results: list[ScalpScanResult] = []
         with ThreadPoolExecutor(max_workers=max(1, min(worker_count, scan_limit))) as executor:
@@ -365,11 +366,23 @@ class CoachMirandaMiner:
         )
         return summary, results
 
-    def _enrich_scalp_candidate(self, candidate: Candidate) -> Candidate | None:
+    def _enrich_scalp_candidate(
+        self,
+        candidate: Candidate,
+        oi_by_base: dict[str, OISnapshot],
+    ) -> Candidate | None:
         ticker = self._cached_ticker(candidate.exchange_id, candidate.route_symbol)
         if ticker.quote_volume is not None and ticker.quote_volume < self.settings.scalp_min_volume_24h_usd:
             return None
-        return candidate.model_copy(update={"volume_24h_usd": ticker.quote_volume})
+        oi_row = oi_by_base.get(candidate.asset.base)
+        return candidate.model_copy(
+            update={
+                "volume_24h_usd": ticker.quote_volume,
+                "open_interest_change_24h_pct": oi_row.open_interest_change_24h_pct
+                if oi_row
+                else None,
+            }
+        )
 
     def _deep_scalp_candidate(
         self,
@@ -1130,6 +1143,14 @@ def _setup_score(
         btc_regime_ok=btc_regime_ok,
         prefilter_reasons=reasons,
     )
+
+
+def _scalp_universe_score(candidate: Candidate) -> float:
+    volume = candidate.volume_24h_usd or 0.0
+    oi_change = abs(candidate.open_interest_change_24h_pct or 0.0)
+    volume_score = min(max(math.log10(volume) - 6.0, 0.0) * 18.0, 54.0) if volume > 0 else 0.0
+    oi_score = min(oi_change * 2.0, 80.0)
+    return volume_score + oi_score
 
 
 def _elapsed(started_at: float) -> float:

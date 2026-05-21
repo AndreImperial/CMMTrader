@@ -61,7 +61,7 @@ def main() -> None:
         )
         discovery_limit = st.slider("Top universe", 1, 100, min(base_settings.prefilter_limit, 100))
         deep_scan_limit = st.slider("Deep analysis limit", 1, 30, min(base_settings.deep_scan_limit, 30))
-        scalp_scan_limit = st.slider("Scalp scan limit", 5, 30, min(base_settings.scalp_scan_limit, 30))
+        scalp_scan_limit = st.slider("Scalp scan limit", 5, 100, min(base_settings.scalp_scan_limit, 100))
         candle_limit = st.slider("Candles per timeframe", 80, 300, base_settings.candle_limit)
         auto_refresh = st.checkbox("Auto scan", value=base_settings.auto_scan_enabled)
         refresh_seconds = st.selectbox(
@@ -295,6 +295,8 @@ def render_scalper(
             "stop": result.thesis.stop_loss,
             "target": result.thesis.targets[0] if result.thesis.targets else None,
             "rr": result.thesis.risk_reward,
+            "oi_change_24h_pct": result.candidate.open_interest_change_24h_pct,
+            "volume_24h_usd": result.candidate.volume_24h_usd,
             "rel_volume_3m": result.score.relative_volume,
             "alert_sent": result.alert_sent,
         }
@@ -312,6 +314,8 @@ def render_scalper(
                 "stop": st.column_config.NumberColumn("Stop", format="%.6f"),
                 "target": st.column_config.NumberColumn("Target", format="%.6f"),
                 "rr": st.column_config.NumberColumn("R/R", format="%.2f"),
+                "oi_change_24h_pct": st.column_config.NumberColumn("OI 24h %", format="%.2f%%"),
+                "volume_24h_usd": st.column_config.NumberColumn("24h Volume", format="$%.0f"),
                 "rel_volume_3m": st.column_config.NumberColumn("3m Rel Vol", format="%.2fx"),
             },
         )

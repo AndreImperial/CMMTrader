@@ -6,7 +6,7 @@ import unittest
 
 import pandas as pd
 
-from coach_miranda_miner.coach import CoachMirandaMiner, _setup_score
+from coach_miranda_miner.coach import CoachMirandaMiner, _scalp_universe_score, _setup_score
 from coach_miranda_miner.exchanges import TickerSnapshot
 from coach_miranda_miner.models import (
     Asset,
@@ -46,6 +46,16 @@ class TwoStageScanTests(unittest.TestCase):
 
         self.assertGreater(strong_score.score, weak_score.score)
         self.assertIn("Coinalyze 24h OI change", " ".join(strong_score.prefilter_reasons))
+
+    def test_scalp_universe_score_prioritizes_oi_movement_with_volume(self) -> None:
+        high_oi = _candidate("HOT").model_copy(
+            update={"volume_24h_usd": 250_000_000, "open_interest_change_24h_pct": 35.0}
+        )
+        sleepy_large_cap = _candidate("SLEEP").model_copy(
+            update={"volume_24h_usd": 1_000_000_000, "open_interest_change_24h_pct": 1.0}
+        )
+
+        self.assertGreater(_scalp_universe_score(high_oi), _scalp_universe_score(sleepy_large_cap))
 
     def test_scan_setups_respects_deep_scan_limit_and_skips_symbol_failures(self) -> None:
         coach = CoachMirandaMiner.__new__(CoachMirandaMiner)

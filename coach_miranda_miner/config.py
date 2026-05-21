@@ -139,7 +139,7 @@ class Settings:
             require_watch_before_enter=_bool(os.getenv("REQUIRE_WATCH_BEFORE_ENTER", "false")),
             active_setup_ttl_minutes=int(os.getenv("ACTIVE_SETUP_TTL_MINUTES", "240")),
             alert_cooldown_minutes=int(os.getenv("ALERT_COOLDOWN_MINUTES", "180")),
-            scalp_scan_limit=int(os.getenv("SCALP_SCAN_LIMIT", "20")),
+            scalp_scan_limit=int(os.getenv("SCALP_SCAN_LIMIT", "50")),
             scalp_candle_limit=int(os.getenv("SCALP_CANDLE_LIMIT", "240")),
             scalp_min_volume_24h_usd=float(os.getenv("SCALP_MIN_VOLUME_24H_USD", "25000000")),
         )
