@@ -69,7 +69,7 @@ def main() -> None:
             [60, 180, 300, 900],
             index=_refresh_index(base_settings.auto_scan_interval_seconds),
         )
-        run_scan = st.button("Scan Now", type="primary", use_container_width=True)
+        run_scan = st.button("Run Intraday Scan", type="primary", use_container_width=True)
         clear_cache = st.button("Clear Scan Cache", use_container_width=True)
         show_history = st.checkbox("Show signal history", value=True)
         show_oi = st.checkbox("Show High OI + Volume", value=True)
@@ -133,13 +133,12 @@ def main() -> None:
                 cache_seconds=refresh_seconds,
             )
         else:
-            st.info("Press Scan Now to look for setups.")
+            st.info("Press Run Intraday Scan to look for intraday setups.")
 
     with scalp_tab:
         render_scalper(
             coach,
             use_tradingview,
-            force_refresh=run_scan,
             cache_seconds=refresh_seconds,
         )
 
@@ -182,7 +181,7 @@ def render_scan(
     if cache_is_valid and not force_refresh:
         summary, scores, results = cached["payload"]
         cache_age = int(time.time() - cached.get("saved_at", 0))
-        st.caption(f"Using cached scan result from {cache_age}s ago. Press Scan Now to force a fresh scan.")
+        st.caption(f"Using cached scan result from {cache_age}s ago. Press Run Intraday Scan to force a fresh scan.")
     else:
         with st.spinner("Scanning top universe, ranking candidates, and deep-analyzing setups..."):
             summary, scores, results = coach.scan_setups()
