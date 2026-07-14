@@ -37,6 +37,7 @@ from .gatekeepers import Gatekeeper
 from .intelligence import IntelligenceGatherer
 from .journal import Journal
 from .market_cap import CoinMarketCapProvider, StaticMarketCapProvider
+from .market_data_quality import ensure_structurally_valid_candles
 from .miner import SignalMiner
 from .models import (
     Asset,
@@ -147,6 +148,7 @@ class CoachMirandaMiner:
             self.router,
             settings.oi_bases,
             settings.coinalyze_api_key,
+            fixture_mode=settings.data_mode == "fixture",
         )
         self.scalper = AlmaCciScalper(
             self.validator,
@@ -691,6 +693,13 @@ class CoachMirandaMiner:
             if cache_key in self._scan_candle_cache:
                 return self._scan_candle_cache[cache_key].copy()
         candles = self.router.fetch_candles(exchange_id, symbol, timeframe, limit)
+        ensure_structurally_valid_candles(
+            candles,
+            symbol=symbol,
+            timeframe=timeframe,
+            source=getattr(self.settings, "data_mode", "unknown"),
+            min_candles=min(20, limit),
+        )
         with self._scan_cache_lock:
             self._scan_candle_cache[cache_key] = candles.copy()
         return candles.copy()
