@@ -499,13 +499,11 @@ def _command_grid(items: list[tuple[str, str, str]]) -> str:
     cards = []
     for label, value, note in items:
         cards.append(
-            f"""
-            <article class="cmm-command-card">
-              <div class="cmm-kicker">{escape(str(label))}</div>
-              <div class="cmm-command-value">{escape(str(value))}</div>
-              <div class="cmm-command-note">{escape(str(note))}</div>
-            </article>
-            """
+            '<article class="cmm-command-card">'
+            f'<div class="cmm-kicker">{escape(str(label))}</div>'
+            f'<div class="cmm-command-value">{escape(str(value))}</div>'
+            f'<div class="cmm-command-note">{escape(str(note))}</div>'
+            "</article>"
         )
     return '<div class="cmm-command-grid">' + "".join(cards) + "</div>"
 
@@ -986,29 +984,28 @@ def _signal_card_grid(results) -> str:
         signal = thesis.signal.value
         grade = alert_grade(thesis, result.validation, result.score)
         cards.append(
-            f"""
-            <article class="cmm-signal-card {escape(signal)}">
-              <div class="cmm-signal-top">
-                <div>
-                  <div class="cmm-symbol">#{result.score.rank} {escape(result.candidate.route_symbol)}</div>
-                  <div class="cmm-strategy">{escape(thesis.setup.value)} · {escape(thesis.direction.upper())} · Grade {escape(grade)}</div>
-                </div>
-                <span class="cmm-pill {escape(signal)}">{escape(signal.upper())}</span>
-              </div>
-              <div class="cmm-signal-metrics">
-                {_mini_metric("Entry", _fmt(thesis.entry))}
-                {_mini_metric("Stop", _fmt(thesis.stop_loss))}
-                {_mini_metric("Target", _fmt(thesis.targets[0] if thesis.targets else None))}
-                {_mini_metric("R/R", f"{thesis.risk_reward:.2f}" if thesis.risk_reward else "n/a")}
-              </div>
-              <div class="cmm-signal-metrics">
-                {_mini_metric("Confidence", f"{thesis.confidence:.0%}")}
-                {_mini_metric("Score", f"{result.score.score:.1f}")}
-                {_mini_metric("Source", result.candidate.exchange_id)}
-                {_mini_metric("Alert", "Sent" if result.alert_sent else "Ready")}
-              </div>
-            </article>
-            """
+            f'<article class="cmm-signal-card {escape(signal)}">'
+            '<div class="cmm-signal-top">'
+            "<div>"
+            f'<div class="cmm-symbol">#{result.score.rank} {escape(result.candidate.route_symbol)}</div>'
+            f'<div class="cmm-strategy">{escape(thesis.setup.value)} · '
+            f"{escape(thesis.direction.upper())} · Grade {escape(grade)}</div>"
+            "</div>"
+            f'<span class="cmm-pill {escape(signal)}">{escape(signal.upper())}</span>'
+            "</div>"
+            '<div class="cmm-signal-metrics">'
+            f'{_mini_metric("Entry", _fmt(thesis.entry))}'
+            f'{_mini_metric("Stop", _fmt(thesis.stop_loss))}'
+            f'{_mini_metric("Target", _fmt(thesis.targets[0] if thesis.targets else None))}'
+            f'{_mini_metric("R/R", f"{thesis.risk_reward:.2f}" if thesis.risk_reward else "n/a")}'
+            "</div>"
+            '<div class="cmm-signal-metrics">'
+            f'{_mini_metric("Confidence", f"{thesis.confidence:.0%}")}'
+            f'{_mini_metric("Score", f"{result.score.score:.1f}")}'
+            f'{_mini_metric("Source", result.candidate.exchange_id)}'
+            f'{_mini_metric("Alert", "Sent" if result.alert_sent else "Ready")}'
+            "</div>"
+            "</article>"
         )
     return '<div class="cmm-signal-grid">' + "".join(cards) + "</div>"
 
