@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from html import escape
 from pathlib import Path
 import sys
 import time
@@ -175,49 +176,141 @@ def _apply_theme() -> None:
         """
         <style>
         :root {
-            --cmm-bg: #0e1116;
-            --cmm-panel: #151a21;
-            --cmm-panel-soft: #1b222c;
-            --cmm-border: #2b3542;
-            --cmm-text: #eef3f8;
-            --cmm-muted: #9aa7b5;
-            --cmm-good: #38b487;
-            --cmm-warn: #d9a441;
-            --cmm-bad: #d86161;
-            --cmm-info: #5e9ee6;
+            --cmm-bg: #080b0f;
+            --cmm-bg-2: #0d1218;
+            --cmm-panel: #121821;
+            --cmm-panel-soft: #18212b;
+            --cmm-panel-hard: #0d131a;
+            --cmm-border: #263241;
+            --cmm-border-bright: #3a4b5f;
+            --cmm-text: #eef4f8;
+            --cmm-muted: #9aa8b8;
+            --cmm-faint: #6f7d8c;
+            --cmm-good: #32d296;
+            --cmm-warn: #f0b84f;
+            --cmm-bad: #f06f6f;
+            --cmm-info: #64b5f6;
+            --cmm-cyan: #71e6ff;
+            --cmm-shadow: 0 18px 48px rgba(0,0,0,.35);
+            --cmm-ease: cubic-bezier(.2,.8,.2,1);
         }
-        .block-container {padding-top: 1.4rem; max-width: 1500px;}
-        div[data-testid="stMetric"] {
-            background: var(--cmm-panel);
+        .stApp {
+            color: var(--cmm-text);
+            background:
+              radial-gradient(circle at 14% 0%, rgba(113,230,255,.11), transparent 30rem),
+              radial-gradient(circle at 92% 8%, rgba(50,210,150,.08), transparent 28rem),
+              linear-gradient(180deg, var(--cmm-bg) 0%, #0b0f14 48%, #090c10 100%);
+        }
+        .stApp::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: .24;
+            background-image:
+                linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,.028) 1px, transparent 1px);
+            background-size: 42px 42px;
+            mask-image: linear-gradient(to bottom, black, transparent 78%);
+        }
+        .block-container {padding-top: 1.15rem; max-width: 1540px;}
+        section[data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #0b1016 0%, #090d12 100%);
+            border-right: 1px solid var(--cmm-border);
+        }
+        section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+        section[data-testid="stSidebar"] label {color: var(--cmm-muted);}
+        h1, h2, h3, [data-testid="stMarkdownContainer"] h1,
+        [data-testid="stMarkdownContainer"] h2, [data-testid="stMarkdownContainer"] h3 {
+            letter-spacing: 0;
+        }
+        .stButton > button, .stDownloadButton > button, a[data-testid="stLinkButton"] {
+            border-radius: 8px !important;
+            min-height: 42px;
+            border: 1px solid var(--cmm-border-bright) !important;
+            background: linear-gradient(180deg, #1a2531, #111923) !important;
+            color: var(--cmm-text) !important;
+            box-shadow: 0 10px 24px rgba(0,0,0,.22);
+            transition: transform 160ms var(--cmm-ease), border-color 160ms var(--cmm-ease);
+        }
+        .stButton > button:hover, .stDownloadButton > button:hover, a[data-testid="stLinkButton"]:hover {
+            transform: translateY(-1px);
+            border-color: rgba(113,230,255,.75) !important;
+        }
+        .stButton > button[kind="primary"] {
+            background: linear-gradient(135deg, #1a7f73, #1261a5) !important;
+            border-color: rgba(113,230,255,.8) !important;
+        }
+        div[role="radiogroup"] {
+            background: rgba(18,24,33,.78);
             border: 1px solid var(--cmm-border);
             border-radius: 8px;
-            padding: 0.75rem 0.85rem;
+            padding: .35rem;
+            gap: .25rem;
+        }
+        div[role="radiogroup"] label {
+            border-radius: 6px;
+            padding: .28rem .55rem;
+        }
+        div[data-testid="stDataFrame"] {
+            border: 1px solid var(--cmm-border);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: var(--cmm-shadow);
+        }
+        div[data-testid="stExpander"] {
+            border: 1px solid var(--cmm-border) !important;
+            border-radius: 8px !important;
+            background: rgba(18,24,33,.72) !important;
+            box-shadow: 0 16px 32px rgba(0,0,0,.22);
+        }
+        div[data-testid="stMetric"] {
+            background:
+                linear-gradient(180deg, rgba(255,255,255,.035), transparent),
+                var(--cmm-panel);
+            border: 1px solid var(--cmm-border);
+            border-radius: 8px;
+            padding: 0.82rem 0.92rem;
+            box-shadow: 0 12px 30px rgba(0,0,0,.24);
         }
         div[data-testid="stMetricLabel"] p {color: var(--cmm-muted); font-size: 0.78rem;}
-        div[data-testid="stMetricValue"] {font-size: 1.25rem;}
+        div[data-testid="stMetricValue"] {font-size: 1.22rem; color: var(--cmm-text);}
         .cmm-header {
-            border: 1px solid var(--cmm-border);
-            background: linear-gradient(135deg, #141922 0%, #10151c 58%, #18202a 100%);
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(113,230,255,.24);
+            background:
+                linear-gradient(135deg, rgba(19,29,39,.98) 0%, rgba(11,16,22,.98) 62%, rgba(18,32,34,.96) 100%);
             border-radius: 8px;
-            padding: 1.1rem 1.2rem;
-            margin-bottom: 0.9rem;
+            padding: 1.2rem 1.25rem;
+            margin-bottom: 1rem;
+            box-shadow: var(--cmm-shadow);
+        }
+        .cmm-header::after {
+            content: "";
+            position: absolute;
+            inset: auto 1.25rem 0 1.25rem;
+            height: 2px;
+            background: linear-gradient(90deg, var(--cmm-cyan), var(--cmm-good), transparent);
+            opacity: .9;
         }
         .cmm-title {
-            font-size: 1.85rem;
+            font-size: 2rem;
             font-weight: 760;
             letter-spacing: 0;
             color: var(--cmm-text);
             margin: 0;
         }
-        .cmm-subtitle {color: var(--cmm-muted); margin-top: 0.25rem;}
+        .cmm-subtitle {color: var(--cmm-muted); margin-top: 0.25rem; max-width: 72ch;}
         .cmm-badges {display: flex; gap: 0.45rem; flex-wrap: wrap; margin-top: 0.8rem;}
         .cmm-badge {
             border: 1px solid var(--cmm-border);
             background: var(--cmm-panel-soft);
-            border-radius: 999px;
-            padding: 0.22rem 0.55rem;
+            border-radius: 6px;
+            padding: 0.26rem 0.58rem;
             color: var(--cmm-text);
             font-size: 0.78rem;
+            font-weight: 650;
         }
         .cmm-badge.good {border-color: rgba(56,180,135,.55); color: #9ee8cc;}
         .cmm-badge.warn {border-color: rgba(217,164,65,.65); color: #f0cf86;}
@@ -227,6 +320,82 @@ def _apply_theme() -> None:
             font-size: 1.15rem;
             font-weight: 720;
             margin: 1.1rem 0 0.5rem;
+        }
+        .cmm-command-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: .65rem;
+            margin: .85rem 0 1rem;
+        }
+        .cmm-command-card, .cmm-signal-card {
+            background:
+                linear-gradient(180deg, rgba(255,255,255,.038), transparent),
+                rgba(18,24,33,.86);
+            border: 1px solid var(--cmm-border);
+            border-radius: 8px;
+            box-shadow: var(--cmm-shadow);
+        }
+        .cmm-command-card {padding: .85rem .9rem;}
+        .cmm-kicker {
+            color: var(--cmm-faint);
+            font-size: .72rem;
+            font-weight: 720;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+        }
+        .cmm-command-value {
+            margin-top: .22rem;
+            color: var(--cmm-text);
+            font-size: 1.08rem;
+            font-weight: 760;
+        }
+        .cmm-command-note {color: var(--cmm-muted); font-size: .78rem; margin-top: .18rem;}
+        .cmm-signal-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: .75rem;
+            margin: .75rem 0 1rem;
+        }
+        .cmm-signal-card {padding: .9rem; border-left: 3px solid var(--cmm-border-bright);}
+        .cmm-signal-card.enter {border-left-color: var(--cmm-good);}
+        .cmm-signal-card.watch {border-left-color: var(--cmm-warn);}
+        .cmm-signal-card.reject, .cmm-signal-card.wait {border-left-color: var(--cmm-bad);}
+        .cmm-signal-top {display:flex; justify-content:space-between; gap:.7rem; align-items:flex-start;}
+        .cmm-symbol {font-size:1.08rem; font-weight:780; color:var(--cmm-text);}
+        .cmm-strategy {color:var(--cmm-muted); font-size:.82rem; margin-top:.1rem;}
+        .cmm-pill {
+            border: 1px solid var(--cmm-border);
+            border-radius: 6px;
+            padding: .18rem .45rem;
+            font-size: .72rem;
+            font-weight: 760;
+            color: var(--cmm-text);
+            white-space: nowrap;
+        }
+        .cmm-pill.enter {color:#a6f4d4; border-color:rgba(50,210,150,.55);}
+        .cmm-pill.watch {color:#ffd890; border-color:rgba(240,184,79,.6);}
+        .cmm-pill.wait, .cmm-pill.reject {color:#ffb0b0; border-color:rgba(240,111,111,.58);}
+        .cmm-signal-metrics {
+            display:grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap:.5rem;
+            margin-top:.85rem;
+        }
+        .cmm-mini-metric {
+            background: rgba(8,11,15,.55);
+            border: 1px solid rgba(255,255,255,.06);
+            border-radius: 6px;
+            padding: .48rem .5rem;
+            min-width: 0;
+        }
+        .cmm-mini-label {color:var(--cmm-faint); font-size:.68rem; text-transform:uppercase; font-weight:720;}
+        .cmm-mini-value {color:var(--cmm-text); font-size:.86rem; font-weight:720; overflow-wrap:anywhere;}
+        @media (max-width: 980px) {
+            .cmm-command-grid, .cmm-signal-grid {grid-template-columns: 1fr;}
+            .cmm-signal-metrics {grid-template-columns: repeat(2, minmax(0, 1fr));}
+        }
+        @media (prefers-reduced-motion: reduce) {
+            * {transition: none !important;}
         }
         </style>
         """,
@@ -274,19 +443,24 @@ def _render_status_strip(settings: Settings, coach: CoachMirandaMiner) -> None:
 
 def _render_overview(settings: Settings, coach: CoachMirandaMiner) -> None:
     st.markdown('<div class="cmm-section-title">Operating Snapshot</div>', unsafe_allow_html=True)
-    cols = st.columns(4)
-    cols[0].metric("Trading Mode", settings.trading_mode.upper())
-    cols[1].metric("Auto Scan", _status_label(settings.auto_scan_enabled))
-    cols[2].metric("Alert Threshold", settings.telegram_min_signal.upper())
-    cols[3].metric("Journal", Path(settings.journal_db).name)
-
     cached_scan = st.session_state.get("scan_cache")
     cached_scalp = st.session_state.get("scalp_cache")
     cached_oi = st.session_state.get("high_oi_cache")
-    cache_cols = st.columns(3)
-    cache_cols[0].metric("Intraday Cache", _cache_age_label(cached_scan))
-    cache_cols[1].metric("Scalp Cache", _cache_age_label(cached_scalp))
-    cache_cols[2].metric("OI Cache", _cache_age_label(cached_oi))
+    st.markdown(
+        _command_grid(
+            [
+                ("Trading Mode", settings.trading_mode.upper(), "Live execution disabled"),
+                ("Auto Scan", _status_label(settings.auto_scan_enabled), f"{settings.auto_scan_interval_seconds}s cadence"),
+                ("Alert Threshold", settings.telegram_min_signal.upper(), f"Grade {settings.min_alert_grade}+"),
+                ("Journal", Path(settings.journal_db).name, "SQLite decision trail"),
+                ("Intraday Cache", _cache_age_label(cached_scan), "Latest market scanner run"),
+                ("Scalp Cache", _cache_age_label(cached_scalp), "Latest execution scan"),
+                ("OI Cache", _cache_age_label(cached_oi), "Latest derivatives context"),
+                ("Data Profile", settings.data_mode, "Source transparency required"),
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
 
     st.markdown('<div class="cmm-section-title">Current Guardrails</div>', unsafe_allow_html=True)
     guard_cols = st.columns(4)
@@ -319,6 +493,21 @@ def _cache_age_label(cache: dict | None) -> str:
         return "None"
     age = max(int(time.time() - cache.get("saved_at", 0)), 0)
     return f"{age}s"
+
+
+def _command_grid(items: list[tuple[str, str, str]]) -> str:
+    cards = []
+    for label, value, note in items:
+        cards.append(
+            f"""
+            <article class="cmm-command-card">
+              <div class="cmm-kicker">{escape(str(label))}</div>
+              <div class="cmm-command-value">{escape(str(value))}</div>
+              <div class="cmm-command-note">{escape(str(note))}</div>
+            </article>
+            """
+        )
+    return '<div class="cmm-command-grid">' + "".join(cards) + "</div>"
 
 
 def render_scan(
@@ -679,6 +868,7 @@ def render_deep_scan(results, use_tradingview: bool) -> None:
         ),
     )
     if rows:
+        st.markdown(_signal_card_grid(results), unsafe_allow_html=True)
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
     else:
         st.info("No deep scan candidates produced a setup table.")
@@ -779,6 +969,56 @@ def render_short_candidates(results) -> None:
             "stop": st.column_config.NumberColumn("Stop", format="%.6f"),
             "target_1": st.column_config.NumberColumn("Target 1", format="%.6f"),
         },
+    )
+
+
+def _signal_card_grid(results) -> str:
+    sorted_results = sorted(
+        results,
+        key=lambda item: (
+            SIGNAL_PRIORITY.get(item.thesis.signal.value, 9),
+            int(item.score.rank),
+        ),
+    )[:8]
+    cards = []
+    for result in sorted_results:
+        thesis = result.thesis
+        signal = thesis.signal.value
+        grade = alert_grade(thesis, result.validation, result.score)
+        cards.append(
+            f"""
+            <article class="cmm-signal-card {escape(signal)}">
+              <div class="cmm-signal-top">
+                <div>
+                  <div class="cmm-symbol">#{result.score.rank} {escape(result.candidate.route_symbol)}</div>
+                  <div class="cmm-strategy">{escape(thesis.setup.value)} · {escape(thesis.direction.upper())} · Grade {escape(grade)}</div>
+                </div>
+                <span class="cmm-pill {escape(signal)}">{escape(signal.upper())}</span>
+              </div>
+              <div class="cmm-signal-metrics">
+                {_mini_metric("Entry", _fmt(thesis.entry))}
+                {_mini_metric("Stop", _fmt(thesis.stop_loss))}
+                {_mini_metric("Target", _fmt(thesis.targets[0] if thesis.targets else None))}
+                {_mini_metric("R/R", f"{thesis.risk_reward:.2f}" if thesis.risk_reward else "n/a")}
+              </div>
+              <div class="cmm-signal-metrics">
+                {_mini_metric("Confidence", f"{thesis.confidence:.0%}")}
+                {_mini_metric("Score", f"{result.score.score:.1f}")}
+                {_mini_metric("Source", result.candidate.exchange_id)}
+                {_mini_metric("Alert", "Sent" if result.alert_sent else "Ready")}
+              </div>
+            </article>
+            """
+        )
+    return '<div class="cmm-signal-grid">' + "".join(cards) + "</div>"
+
+
+def _mini_metric(label: str, value: str | float | int | None) -> str:
+    return (
+        '<div class="cmm-mini-metric">'
+        f'<div class="cmm-mini-label">{escape(str(label))}</div>'
+        f'<div class="cmm-mini-value">{escape(str(value if value is not None else "n/a"))}</div>'
+        "</div>"
     )
 
 

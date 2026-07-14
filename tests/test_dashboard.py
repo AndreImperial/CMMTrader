@@ -6,6 +6,8 @@ from types import SimpleNamespace
 from coach_miranda_miner.dashboard import (
     NAVIGATION_LABELS,
     TRADINGVIEW_HEIGHT,
+    _command_grid,
+    _mini_metric,
     _scan_cache_key,
     _status_label,
     _tradingview_widget,
@@ -41,6 +43,14 @@ class DashboardTests(unittest.TestCase):
     def test_status_label_is_stable(self) -> None:
         self.assertEqual(_status_label(True), "On")
         self.assertEqual(_status_label(False), "Off")
+
+    def test_reskin_helpers_escape_values(self) -> None:
+        metric = _mini_metric("Entry", "<script>")
+        grid = _command_grid([("Mode", "paper", "<unsafe>")])
+
+        self.assertIn("&lt;script&gt;", metric)
+        self.assertIn("&lt;unsafe&gt;", grid)
+        self.assertIn("cmm-command-grid", grid)
 
 
 def _settings(scan_workers: int, prefilter_candle_limit: int):
