@@ -1,3 +1,4 @@
+-c constraints.txt
 ccxt>=4.3.0
 matplotlib>=3.8.0
 pandas>=2.2.0
