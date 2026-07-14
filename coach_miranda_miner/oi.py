@@ -36,10 +36,12 @@ class OpenInterestScanner:
         price_router,
         bases: list[str] | None = None,
         coinalyze_api_key: str | None = None,
+        fixture_mode: bool = False,
     ) -> None:
         self.price_router = price_router
         self.bases = bases or DEFAULT_OI_BASES
         self.coinalyze_api_key = coinalyze_api_key
+        self.fixture_mode = fixture_mode
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "CMMTrader"})
         if self.coinalyze_api_key:
@@ -47,6 +49,10 @@ class OpenInterestScanner:
 
     def scan(self) -> tuple[list[OISnapshot], list[str]]:
         warnings: list[str] = []
+        if self.fixture_mode:
+            warnings.append("Fixture OI data is synthetic and offline.")
+            return self._fixture_snapshots(), warnings
+
         snapshots = self.scan_coinalyze_only(warnings)
         if snapshots:
             return self._merge_volume(snapshots), warnings
@@ -220,6 +226,29 @@ class OpenInterestScanner:
                 )
             )
         return sorted(rows, key=lambda item: item.volume_24h_usd or 0.0, reverse=True)
+
+    def _fixture_snapshots(self) -> list[OISnapshot]:
+        rows = []
+        for index, base in enumerate(self.bases):
+            price, volume = self._price_and_volume(base)
+            if price is None:
+                continue
+            open_interest = 20_000_000 + (len(self.bases) - index) * 5_000_000
+            change = 4.0 + (index % 4) * 1.5
+            rows.append(
+                OISnapshot(
+                    symbol=f"{base}/USD",
+                    source="Fixture",
+                    open_interest=open_interest / price,
+                    open_interest_usd=open_interest,
+                    open_interest_change_24h_pct=change,
+                    volume_24h_usd=volume,
+                    price=price,
+                    status="Synthetic fixture OI",
+                    updated_at=datetime.now(timezone.utc),
+                )
+            )
+        return sorted(rows, key=lambda item: item.score, reverse=True)
 
     def _price_and_volume(self, base: str) -> tuple[float | None, float | None]:
         try:

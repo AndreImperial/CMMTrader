@@ -56,6 +56,19 @@ class OIScannerTests(unittest.TestCase):
         self.assertEqual(rows[0].status, "Volume only; OI unavailable")
         self.assertIsNone(rows[0].open_interest_usd)
 
+    def test_fixture_mode_does_not_call_external_oi_endpoints(self) -> None:
+        scanner = OpenInterestScanner(FakeRouter(), ["ETH", "BTC"], fixture_mode=True)
+
+        def blocked_get(*args, **kwargs):
+            raise AssertionError("fixture mode should not call external OI endpoints")
+
+        scanner.session.get = blocked_get
+        rows, warnings = scanner.scan()
+
+        self.assertEqual(rows[0].source, "Fixture")
+        self.assertEqual(rows[0].status, "Synthetic fixture OI")
+        self.assertIn("synthetic", warnings[0].lower())
+
     def test_coinalyze_symbols_use_perpetual_flag(self) -> None:
         scanner = OpenInterestScanner(FakeRouter(), ["BTC"], "test-key")
         self.assertEqual(scanner.session.headers["api_key"], "test-key")
