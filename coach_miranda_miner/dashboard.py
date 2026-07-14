@@ -40,6 +40,15 @@ DATA_MODES = {
 
 SIGNAL_PRIORITY = {"enter": 0, "watch": 1, "wait": 2, "reject": 3}
 TRADINGVIEW_HEIGHT = 760
+NAVIGATION_LABELS = [
+    "Overview",
+    "Market Scanner",
+    "Scalper",
+    "Open Interest",
+    "Backtests",
+    "Journal",
+    "System Health",
+]
 
 
 def main() -> None:
@@ -48,8 +57,7 @@ def main() -> None:
         page_icon="CM",
         layout="wide",
     )
-    st.title("Coach Miranda Miner")
-    st.caption("Free-first crypto setup scanner. Alert/paper mode only.")
+    _apply_theme()
 
     base_settings = Settings.from_env()
     with st.sidebar:
@@ -100,26 +108,8 @@ def main() -> None:
     )
     coach = CoachMirandaMiner(settings)
 
-    status_cols = st.columns(5)
-    status_cols[0].metric("Data Mode", settings.data_mode)
-    status_cols[1].metric("Analyzer", settings.analyzer_mode)
-    status_cols[2].metric("Trading Mode", settings.trading_mode)
-    status_cols[3].metric("Telegram", "On" if coach.telegram.configured else "Off")
-    status_cols[4].metric("Coinalyze", "On" if settings.coinalyze_api_key else "Off")
-    st.caption(
-        "Quality gates: "
-        f"min confidence {settings.min_confidence:.0%}, "
-        f"min R/R {settings.min_risk_reward:.1f}, "
-        f"Telegram alerts at {settings.telegram_min_signal.upper()} or better."
-    )
-    if settings.data_mode == "coinbase":
-        st.success("Using real public Coinbase OHLCV candles.")
-    elif settings.data_mode == "paprika":
-        st.warning("CoinPaprika mode has live prices but approximated intraday candles.")
-    elif settings.data_mode == "live":
-        st.warning("Direct exchange mode may be blocked by Render server location.")
-    elif settings.data_mode == "fixture":
-        st.warning("Offline demo mode uses synthetic candles.")
+    _render_app_header(settings)
+    _render_status_strip(settings, coach)
 
     if clear_cache:
         st.session_state.pop("scan_cache", None)
@@ -129,11 +119,14 @@ def main() -> None:
 
     view = st.radio(
         "View",
-        ["Scanner", "Scalper", "High OI", "Backtest", "History"],
+        NAVIGATION_LABELS,
         horizontal=True,
         label_visibility="collapsed",
     )
-    if view == "Scanner":
+    if view == "Overview":
+        _render_overview(settings, coach)
+
+    if view == "Market Scanner":
         if run_scan or auto_refresh:
             render_scan(
                 coach,
@@ -152,16 +145,16 @@ def main() -> None:
             cache_seconds=refresh_seconds,
         )
 
-    if view == "High OI":
+    if view == "Open Interest":
         if show_oi:
             render_high_oi(coach, cache_seconds=refresh_seconds)
         else:
             st.info("Enable High OI + Volume in the sidebar.")
 
-    if view == "Backtest":
+    if view == "Backtests":
         render_backtest(coach)
 
-    if view == "History":
+    if view == "Journal":
         if show_history:
             render_history(coach)
             render_outcomes(coach)
@@ -169,9 +162,163 @@ def main() -> None:
         else:
             st.info("Enable signal history in the sidebar.")
 
-    if auto_refresh and view == "Scanner":
+    if view == "System Health":
+        _render_system_health(settings, coach)
+
+    if auto_refresh and view == "Market Scanner":
         time.sleep(refresh_seconds)
         st.rerun()
+
+
+def _apply_theme() -> None:
+    st.markdown(
+        """
+        <style>
+        :root {
+            --cmm-bg: #0e1116;
+            --cmm-panel: #151a21;
+            --cmm-panel-soft: #1b222c;
+            --cmm-border: #2b3542;
+            --cmm-text: #eef3f8;
+            --cmm-muted: #9aa7b5;
+            --cmm-good: #38b487;
+            --cmm-warn: #d9a441;
+            --cmm-bad: #d86161;
+            --cmm-info: #5e9ee6;
+        }
+        .block-container {padding-top: 1.4rem; max-width: 1500px;}
+        div[data-testid="stMetric"] {
+            background: var(--cmm-panel);
+            border: 1px solid var(--cmm-border);
+            border-radius: 8px;
+            padding: 0.75rem 0.85rem;
+        }
+        div[data-testid="stMetricLabel"] p {color: var(--cmm-muted); font-size: 0.78rem;}
+        div[data-testid="stMetricValue"] {font-size: 1.25rem;}
+        .cmm-header {
+            border: 1px solid var(--cmm-border);
+            background: linear-gradient(135deg, #141922 0%, #10151c 58%, #18202a 100%);
+            border-radius: 8px;
+            padding: 1.1rem 1.2rem;
+            margin-bottom: 0.9rem;
+        }
+        .cmm-title {
+            font-size: 1.85rem;
+            font-weight: 760;
+            letter-spacing: 0;
+            color: var(--cmm-text);
+            margin: 0;
+        }
+        .cmm-subtitle {color: var(--cmm-muted); margin-top: 0.25rem;}
+        .cmm-badges {display: flex; gap: 0.45rem; flex-wrap: wrap; margin-top: 0.8rem;}
+        .cmm-badge {
+            border: 1px solid var(--cmm-border);
+            background: var(--cmm-panel-soft);
+            border-radius: 999px;
+            padding: 0.22rem 0.55rem;
+            color: var(--cmm-text);
+            font-size: 0.78rem;
+        }
+        .cmm-badge.good {border-color: rgba(56,180,135,.55); color: #9ee8cc;}
+        .cmm-badge.warn {border-color: rgba(217,164,65,.65); color: #f0cf86;}
+        .cmm-badge.bad {border-color: rgba(216,97,97,.65); color: #f2a0a0;}
+        .cmm-section-title {
+            color: var(--cmm-text);
+            font-size: 1.15rem;
+            font-weight: 720;
+            margin: 1.1rem 0 0.5rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_app_header(settings: Settings) -> None:
+    paper_class = "good" if settings.trading_mode == "paper" else "bad"
+    data_class = "warn" if settings.data_mode in {"fixture", "paprika"} else "good"
+    st.markdown(
+        f"""
+        <section class="cmm-header">
+          <h1 class="cmm-title">Coach Miranda Miner</h1>
+          <div class="cmm-subtitle">Crypto setup operations console. Paper and manual alert flow only.</div>
+          <div class="cmm-badges">
+            <span class="cmm-badge {paper_class}">Trading: {settings.trading_mode.upper()}</span>
+            <span class="cmm-badge {data_class}">Data: {settings.data_mode}</span>
+            <span class="cmm-badge">Analyzer: {settings.analyzer_mode}</span>
+            <span class="cmm-badge">Min R/R: {settings.min_risk_reward:.1f}</span>
+            <span class="cmm-badge">Min confidence: {settings.min_confidence:.0%}</span>
+          </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_status_strip(settings: Settings, coach: CoachMirandaMiner) -> None:
+    status_cols = st.columns(5)
+    status_cols[0].metric("Data Source", settings.data_mode)
+    status_cols[1].metric("Universe", settings.prefilter_limit)
+    status_cols[2].metric("Deep Limit", settings.deep_scan_limit)
+    status_cols[3].metric("Telegram", _status_label(coach.telegram.configured))
+    status_cols[4].metric("Coinalyze", _status_label(bool(settings.coinalyze_api_key)))
+    if settings.data_mode == "coinbase":
+        st.success("Using real public Coinbase OHLCV candles.")
+    elif settings.data_mode == "paprika":
+        st.warning("CoinPaprika mode has live prices but approximated intraday candles.")
+    elif settings.data_mode == "live":
+        st.warning("Direct exchange mode may be blocked by Render server location.")
+    elif settings.data_mode == "fixture":
+        st.warning("Offline demo mode uses synthetic candles.")
+
+
+def _render_overview(settings: Settings, coach: CoachMirandaMiner) -> None:
+    st.markdown('<div class="cmm-section-title">Operating Snapshot</div>', unsafe_allow_html=True)
+    cols = st.columns(4)
+    cols[0].metric("Trading Mode", settings.trading_mode.upper())
+    cols[1].metric("Auto Scan", _status_label(settings.auto_scan_enabled))
+    cols[2].metric("Alert Threshold", settings.telegram_min_signal.upper())
+    cols[3].metric("Journal", Path(settings.journal_db).name)
+
+    cached_scan = st.session_state.get("scan_cache")
+    cached_scalp = st.session_state.get("scalp_cache")
+    cached_oi = st.session_state.get("high_oi_cache")
+    cache_cols = st.columns(3)
+    cache_cols[0].metric("Intraday Cache", _cache_age_label(cached_scan))
+    cache_cols[1].metric("Scalp Cache", _cache_age_label(cached_scalp))
+    cache_cols[2].metric("OI Cache", _cache_age_label(cached_oi))
+
+    st.markdown('<div class="cmm-section-title">Current Guardrails</div>', unsafe_allow_html=True)
+    guard_cols = st.columns(4)
+    guard_cols[0].metric("Max Position", f"${settings.max_position_usd:,.0f}")
+    guard_cols[1].metric("Daily Loss Cap", f"${settings.max_daily_loss_usd:,.0f}")
+    guard_cols[2].metric("BTC Kill Switch", f"{settings.btc_kill_switch_drop_pct:.1f}%")
+    guard_cols[3].metric("Min Volume", f"${settings.min_volume_24h_usd / 1_000_000:.0f}M")
+
+
+def _render_system_health(settings: Settings, coach: CoachMirandaMiner) -> None:
+    st.markdown('<div class="cmm-section-title">System Health</div>', unsafe_allow_html=True)
+    for line in coach.doctor().splitlines():
+        if line.startswith("Warning:"):
+            st.warning(line.replace("Warning: ", "", 1))
+        else:
+            st.caption(line)
+    health_cols = st.columns(4)
+    health_cols[0].metric("Workers", settings.scan_workers)
+    health_cols[1].metric("Fetch Timeout", f"{settings.fetch_timeout_seconds}s")
+    health_cols[2].metric("Candles", settings.candle_limit)
+    health_cols[3].metric("Charts", _status_label(settings.render_charts))
+
+
+def _status_label(enabled: bool) -> str:
+    return "On" if enabled else "Off"
+
+
+def _cache_age_label(cache: dict | None) -> str:
+    if not cache:
+        return "None"
+    age = max(int(time.time() - cache.get("saved_at", 0)), 0)
+    return f"{age}s"
 
 
 def render_scan(

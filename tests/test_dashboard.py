@@ -3,7 +3,13 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from coach_miranda_miner.dashboard import TRADINGVIEW_HEIGHT, _scan_cache_key, _tradingview_widget
+from coach_miranda_miner.dashboard import (
+    NAVIGATION_LABELS,
+    TRADINGVIEW_HEIGHT,
+    _scan_cache_key,
+    _status_label,
+    _tradingview_widget,
+)
 
 
 class DashboardTests(unittest.TestCase):
@@ -27,9 +33,18 @@ class DashboardTests(unittest.TestCase):
         self.assertNotEqual(_scan_cache_key(base), _scan_cache_key(changed_workers))
         self.assertNotEqual(_scan_cache_key(base), _scan_cache_key(changed_candles))
 
+    def test_navigation_exposes_operations_console_views(self) -> None:
+        self.assertEqual(NAVIGATION_LABELS[0], "Overview")
+        self.assertIn("Market Scanner", NAVIGATION_LABELS)
+        self.assertIn("System Health", NAVIGATION_LABELS)
+
+    def test_status_label_is_stable(self) -> None:
+        self.assertEqual(_status_label(True), "On")
+        self.assertEqual(_status_label(False), "Off")
+
 
 def _settings(scan_workers: int, prefilter_candle_limit: int):
-        return SimpleNamespace(
+    return SimpleNamespace(
         data_mode="coinbase",
         prefilter_limit=100,
         deep_scan_limit=20,
