@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import unittest
 
-from coach_miranda_miner.config import Settings
+from coach_miranda_miner.config import ConfigurationError, Settings
 
 
 class SettingsTests(unittest.TestCase):
@@ -37,6 +37,11 @@ class SettingsTests(unittest.TestCase):
             "SCALP_MIN_ATR_PCT",
             "SCALP_MAX_ATR_PCT",
             "SCALP_CROSS_FRESH_BARS",
+            "DATA_MODE",
+            "TRADING_MODE",
+            "MIN_CONFIDENCE",
+            "RENDER_CHARTS",
+            "TIMEFRAME",
         ]:
             os.environ.pop(name, None)
         os.environ["DISCOVERY_LIMIT"] = "100"
@@ -71,6 +76,11 @@ class SettingsTests(unittest.TestCase):
             "SCALP_MIN_ATR_PCT",
             "SCALP_MAX_ATR_PCT",
             "SCALP_CROSS_FRESH_BARS",
+            "DATA_MODE",
+            "TRADING_MODE",
+            "MIN_CONFIDENCE",
+            "RENDER_CHARTS",
+            "TIMEFRAME",
         ]:
             os.environ.pop(name, None)
 
@@ -110,6 +120,30 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.scalp_min_atr_pct, 0.12)
         self.assertEqual(settings.scalp_max_atr_pct, 2.8)
         self.assertEqual(settings.scalp_cross_fresh_bars, 3)
+
+    def test_invalid_mode_raises_clear_error(self) -> None:
+        os.environ["DATA_MODE"] = "mystery"
+
+        with self.assertRaisesRegex(ConfigurationError, "DATA_MODE"):
+            Settings.from_env()
+
+    def test_invalid_numeric_value_raises_clear_error(self) -> None:
+        os.environ["MIN_CONFIDENCE"] = "1.2"
+
+        with self.assertRaisesRegex(ConfigurationError, "MIN_CONFIDENCE"):
+            Settings.from_env()
+
+    def test_invalid_boolean_raises_clear_error(self) -> None:
+        os.environ["RENDER_CHARTS"] = "sometimes"
+
+        with self.assertRaisesRegex(ConfigurationError, "RENDER_CHARTS"):
+            Settings.from_env()
+
+    def test_live_trading_mode_is_not_allowed(self) -> None:
+        os.environ["TRADING_MODE"] = "live"
+
+        with self.assertRaisesRegex(ConfigurationError, "TRADING_MODE"):
+            Settings.from_env()
 
 
 if __name__ == "__main__":
