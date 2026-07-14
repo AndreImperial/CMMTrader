@@ -7,6 +7,9 @@ import pandas as pd
 from .indicators import alma, atr, cci, ema, macd, moving_average, relative_volume, rsi
 
 
+MIN_VALIDATION_TRADES = 30
+
+
 @dataclass(frozen=True)
 class BacktestResult:
     symbol: str
@@ -25,8 +28,12 @@ class BacktestResult:
     short_trades: int = 0
     sample_trades: list[dict] = field(default_factory=list)
     setup_stats: dict[str, dict] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
 
     def format(self) -> str:
+        warning_lines = ""
+        if self.warnings:
+            warning_lines = "\nWarnings:\n" + "\n".join(f"- {warning}" for warning in self.warnings)
         samples = ""
         if self.sample_trades:
             lines = []
@@ -57,6 +64,7 @@ class BacktestResult:
             f"Profit factor: {self.profit_factor:.2f}\n"
             f"Expectancy: {self.expectancy_pct:.2f}% per trade\n"
             f"Avg win/loss: {self.average_win_pct:.2f}% / {self.average_loss_pct:.2f}%"
+            f"{warning_lines}"
             f"{setup_lines}"
             f"{samples}"
         )
@@ -168,6 +176,7 @@ class MovingAverageBacktester:
             average_loss_pct=average_loss * 100,
             long_trades=trades,
             short_trades=0,
+            warnings=_backtest_warnings(trades, wins, losses),
         )
 
 
@@ -284,6 +293,7 @@ class MirandaStrategyBacktester:
             short_trades=short_trades,
             sample_trades=sample_trades,
             setup_stats=_setup_stats(setup_returns),
+            warnings=_backtest_warnings(trades, wins, losses),
         )
 
     def _signal_at(self, frame: pd.DataFrame, index: int) -> _Signal | None:
@@ -440,6 +450,21 @@ def _setup_stats(setup_returns: dict[str, list[tuple[float, str]]]) -> dict[str,
     return stats
 
 
+def _backtest_warnings(trades: int, wins: int, losses: int) -> list[str]:
+    warnings: list[str] = []
+    if trades < MIN_VALIDATION_TRADES:
+        trade_label = "trade" if trades == 1 else "trades"
+        warnings.append(
+            f"Only {trades} {trade_label}; this is a smoke test, not strategy validation. "
+            f"Minimum validation target is {MIN_VALIDATION_TRADES} trades."
+        )
+    if trades > 0 and losses == 0:
+        warnings.append("No losing trades observed; profit factor is not statistically stable.")
+    if trades > 0 and wins == 0:
+        warnings.append("No winning trades observed; review setup and execution assumptions.")
+    return warnings
+
+
 class AlmaCciScalpBacktester:
     """Approximation of the 3m EMA9/ALMA20 plus CCI20 scalp rules."""
 
@@ -518,6 +543,7 @@ class AlmaCciScalpBacktester:
             short_trades=short_trades,
             sample_trades=sample_trades,
             setup_stats=_setup_stats(setup_returns),
+            warnings=_backtest_warnings(trades, wins, losses),
         )
 
     def _signal_at(self, frame: pd.DataFrame, index: int) -> _Signal | None:

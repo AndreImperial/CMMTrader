@@ -4,7 +4,12 @@ import unittest
 
 import pandas as pd
 
-from coach_miranda_miner.backtest import AlmaCciScalpBacktester, MirandaStrategyBacktester, StrategyBacktestConfig
+from coach_miranda_miner.backtest import (
+    AlmaCciScalpBacktester,
+    BacktestResult,
+    MirandaStrategyBacktester,
+    StrategyBacktestConfig,
+)
 from tests.test_scalper import _execution_frame
 
 
@@ -20,6 +25,7 @@ class StrategyBacktestTests(unittest.TestCase):
         self.assertGreater(result.long_trades, 0)
         self.assertEqual(result.short_trades, 0)
         self.assertTrue(result.setup_stats)
+        self.assertTrue(result.warnings)
 
     def test_miranda_backtest_can_take_short_trades(self) -> None:
         result = _tester(allow_longs=False, allow_shorts=True).run(
@@ -52,6 +58,26 @@ class StrategyBacktestTests(unittest.TestCase):
 
         self.assertEqual(result.symbol, "TEST/USD")
         self.assertGreaterEqual(result.trades, 0)
+
+    def test_backtest_format_shows_validation_warnings(self) -> None:
+        result = BacktestResult(
+            symbol="TEST/USD",
+            timeframe="1h",
+            trades=1,
+            wins=1,
+            losses=0,
+            win_rate=1.0,
+            total_return_pct=1.0,
+            max_drawdown_pct=0.0,
+            profit_factor=99.0,
+            expectancy_pct=1.0,
+            average_win_pct=1.0,
+            average_loss_pct=0.0,
+            warnings=["Only 1 trade; this is not validation."],
+        )
+
+        self.assertIn("Warnings:", result.format())
+        self.assertIn("Only 1 trade", result.format())
 
 
 def _tester(allow_longs: bool, allow_shorts: bool) -> MirandaStrategyBacktester:
