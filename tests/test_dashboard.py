@@ -29,7 +29,7 @@ class DashboardTests(unittest.TestCase):
 
 
 def _settings(scan_workers: int, prefilter_candle_limit: int):
-        return SimpleNamespace(
+    return SimpleNamespace(
         data_mode="coinbase",
         prefilter_limit=100,
         deep_scan_limit=20,
